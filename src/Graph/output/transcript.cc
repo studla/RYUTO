@@ -102,7 +102,7 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
             os << ", " << *u_it ;
         }
     }
-    os << "\";\n";
+    os << "\";";
     
     // then second print individual exons
     for(  std::deque<std::pair<rpos, rpos> >::iterator it = exons.begin(); it != exons.end(); ++it) {
@@ -128,9 +128,7 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
         if (guided) {
             os << "reference_id \"" << guide_reference << "\"; ";
         }
-        
-        os << "\n";
-    
     }
+    os << "\n";
     
 }
