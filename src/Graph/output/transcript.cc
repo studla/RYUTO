@@ -89,7 +89,7 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
     os << "transcript_id \"fres." << gene_id << "." << std::to_string(trans_id) << "\"; ";
     os << "FPKM \"" << std::to_string(fpkm) << "\"; ";
     os << "cov \"" << std::to_string(mean) << "\"; ";
-    os << "uniform_cov \"" << std::to_string(flow) << "\";\n";
+    os << "uniform_cov \"" << std::to_string(flow) << "\";";
     
     os << "unsecurities \"";
     std::deque<transcript_unsecurity>::iterator u_it = unsecurity_id.begin();
@@ -102,7 +102,7 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
             os << ", " << *u_it ;
         }
     }
-    os << "\";";
+    os << "\";\n";
     
     // then second print individual exons
     for(  std::deque<std::pair<rpos, rpos> >::iterator it = exons.begin(); it != exons.end(); ++it) {
@@ -128,7 +128,9 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
         if (guided) {
             os << "reference_id \"" << guide_reference << "\"; ";
         }
+        
+        os << "\n";
+    
     }
-    os << "\n";
     
 }
