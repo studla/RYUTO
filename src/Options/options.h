@@ -59,10 +59,10 @@ private:
     float guide_trust_level = 0.6;
     bool graph_denoising = true;                                
     bool keep_introns = false;                                  
-    unsigned int intron_retention_threshold = 50; // 30% of overlap to both sides!
+    unsigned int intron_retention_threshold = 30; // 30% of overlap to both sides!
     unsigned int broken_intron_retention_threshold = 15; 
     
-    unsigned int exon_join_distance = 50; //0; // base pairs    
+    unsigned int exon_join_distance = 5; //0; // base pairs    
     bool trimming = true;
     float trimming_rate = 0.2;
     
@@ -71,12 +71,12 @@ private:
    // unsigned int arc_filter = 8;  // adjourning edges lower than % are killed  // was  (6)
     unsigned int min_junction_coverage = 1; // filter out junctions with less coverage than this (excluding those < min_junction_anchor)! // ADD
     unsigned int min_junction_anchor = 10; // filter out junctions with less length evidence than this!  (10) // ADD
-    unsigned int low_edge_mark = 4;
+    float low_edge_mark = 4;
     
     // Output Filter options
     unsigned int percent_filter = 0; // percent minimal value to filter final transcripts
     unsigned int capacity_filter = 0; // absolute minimal value to filter final transcripts    //internal
-    unsigned int mean_filter = 4;
+    float mean_filter = 4;
     unsigned int min_single_coverage = 10; // absolute minimal value to filter final transcripts that have no introns
     unsigned int min_transcript_length_base = 150; // absolute minimal length on assembled transcripts // ADD
     unsigned int min_transcript_length_extension = 50; // absolute minimal length on assembled transcripts // ADD
@@ -189,7 +189,7 @@ public:
         return capacity_filter;
     }
     
-    unsigned int get_mean_filter() {
+    float get_mean_filter() {
         return mean_filter;
     }
     
@@ -272,7 +272,7 @@ public:
         return trimming;
     }
     
-    unsigned int get_low_edge_mark() {
+    float get_low_edge_mark() {
         return low_edge_mark;
     }
     

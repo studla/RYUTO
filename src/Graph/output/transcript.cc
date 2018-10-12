@@ -7,11 +7,44 @@
 
 #include "transcript.h"
 
-transcript::transcript() : flow(0), mean(0), cycle_id_in(0), cycle_id_out(0), guided(false) {
+transcript::transcript() : flow(0), mean(0), score(0), cycle_id_in(0), cycle_id_out(0), guided(false) {
 }
 
 
 transcript::~transcript() {
+}
+
+void transcript::join(transcript* o) {
+    
+    found_edge.join_edge(o->found_edge);
+
+    flow = (flow + o->flow) / 2;
+    mean = (mean + o->mean) / 2;
+    score = (score + o->score) / 2;
+    length += o->length;
+
+    for(std::deque<transcript_unsecurity>::iterator ui = o->unsecurity_id.begin(); ui != o->unsecurity_id.end(); ++ui) {
+        unsecurity_id.push_back(*ui);
+    }
+    
+    std::deque<std::pair<rpos, rpos> > exons;
+        
+    std::deque<std::pair<rpos, rpos> >::iterator ei = o->exons.begin();
+    exons.back().second = ei->second;
+    ++ei;
+    for (; ei !=  o->exons.end(); ++ei) {
+        exons.push_back(*ei);
+    }
+    
+    // TODO
+//    unsigned int cycle_id_in;
+//    unsigned int cycle_id_out;
+    
+    // finalized values
+;
+//    float fpkm;
+//    std::string chromosome;
+//    std::string strand;
 }
 
 void transcript::print(std::ostream &os) {

@@ -16,6 +16,10 @@
 #include <unordered_map>
 #include <lemon/lp.h>
 
+#include <coin/ClpSimplex.hpp>
+#include <coin/CoinHelperFunctions.hpp>
+#include <coin/CoinBuild.hpp>
+
 //void base_manager::extract_transcripts_from_flow(std::ostream &gs) {
 
 void base_manager::extract_transcripts_from_flow() {
@@ -44,8 +48,8 @@ void base_manager::extract_transcripts_from_flow() {
                 .run();  
     #endif  
 
-       // transform cap to mean
-   for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+    // transform cap to mean
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
        if (edge_type[a] == edge_types::NODE) {
            means[a] = capacity_mean(regions[a].get_average(), edge_lengths[a].middle);
        } else if (edge_type[a] == edge_types::EXON) {
@@ -81,7 +85,6 @@ void base_manager::extract_transcripts_from_flow() {
                 continue;
             }
             
-             logger::Instance()->debug("Arc " + std::to_string(g.id(a)) + ": " + std::to_string(sum_left) + " " + std::to_string(sum_right)  +"\n");
             float min_ave = std::min(left_ave*this_ave/sum_left, right_ave*this_ave/sum_right);
             
             float cap = std::min(min_ave, (float) capacity[a]);
@@ -90,10 +93,13 @@ void base_manager::extract_transcripts_from_flow() {
             regions[a].subregions.begin()->start_count = cap;
             regions[a].subregions.begin()->end_count = cap;
             regions[a].subregions.begin()->basecount = cap * (regions[a].subregions.begin()->end - regions[a].subregions.begin()->start + 1 );
+
+            means[a] = capacity_mean(cap, regions[a].get_length());
+            
         }
     }  
     
-    
+ 
     #ifdef ALLOW_DEBUG
     digraphWriter(g, std::cout)
                 .arcMap("edge_specifier", edge_specifier)
@@ -105,7 +111,7 @@ void base_manager::extract_transcripts_from_flow() {
                 .node("drain", t)
                 .run();  
     #endif
-
+   
    ListDigraph::ArcMap<bool> guided_saves(g);
    std::deque<std::deque<ListDigraph::Arc> > guided_paths;
    find_guide_sources_and_drains(guided_saves, guided_paths);
@@ -116,8 +122,15 @@ void base_manager::extract_transcripts_from_flow() {
    ListDigraph::ArcMap<bool> marked_source(g);
    ListDigraph::ArcMap<bool> marked_drain(g);
    find_s_t_exons(guided_saves, marked_source, marked_drain, consecutive_s_t);
-   prune_sources_and_drains_adjacent_starts(guided_saves); // directly adjacent/starts at exactly inner exons 
    
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+        if (edge_type[a] == edge_types::NODE && !marked_source[a] && !marked_drain[a]) {
+           means[a].scores.clear();
+        }
+    }
+   
+   prune_sources_and_drains_adjacent_starts(guided_saves); // directly adjacent/starts at exactly inner exons 
+
    #ifdef ALLOW_DEBUG
    print_graph_debug_copy(std::cout, g, capacity, edge_specifier, edge_type, edge_lengths, s, t);
    #endif   
@@ -134,7 +147,6 @@ void base_manager::extract_transcripts_from_flow() {
    print_graph_debug_copy(std::cout, g, capacity, edge_specifier, edge_type, edge_lengths, s, t);
    #endif
    
-   shorten_boundaries_scallop_like(guided_saves, marked_source, marked_drain, consecutive_s_t); 
 
    #ifdef ALLOW_DEBUG
    print_graph_debug_copy(std::cout, g, capacity, edge_specifier, edge_type, edge_lengths, s, t);
@@ -142,17 +154,89 @@ void base_manager::extract_transcripts_from_flow() {
    
    //prune_unevidenced_arcs(guided_saves, marked_source, marked_drain);  // percent left right
    
-   prune_scallop_like(guided_saves, marked_source, marked_drain, consecutive_s_t);
    
-   remove_dead_ends(); 
+//    std::vector<capacity_type> avgs;
+//    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+//        if (edge_type[a] == edge_types::EXON) {
+//            avgs.push_back(capacity[a]);
+//        }
+//    }
+//    std::sort(avgs.begin(), avgs.end());
+////    
+//
+//    std::vector<capacity_type>::iterator ait = avgs.begin();
+//    int j = 0;
+//    while ( ait != avgs.end() ){
+//        //logger::Instance()->debug(std::to_string(j*10));
+//        for (int i = 0 ; i < 10 && ait != avgs.end(); ++i, ++ait) {
+//            logger::Instance()->debug("," + std::to_string(*ait));
+//        }
+//        
+//        ++j;
+//    }
+
+    float low_mark = options::Instance()->get_low_edge_mark();
+    
+//    if (!avgs.empty()) {
+//
+//      //  float median_mark = avgs[avgs.size() * 0.5];
+//        
+//        //avgs.erase(avgs.begin() + avgs.size() / 2 + 1, avgs.end());
+//        //float percent_mark = DKMeans(avgs);
+//
+//        //if (percent_mark > low_mark) {// && percent_mark < median_mark) {
+//        //    low_mark = percent_mark;
+//        //}
+//        
+//        low_mark += avgs[avgs.size() * 0.5] / 100;
+//        
+//    }
+//    avgs.clear();
+  
+    
+    remove_too_short_source_drain(guided_saves, marked_source, marked_drain, consecutive_s_t); 
+    while (true) {
+        
+        remove_dead_ends(); 
+        ListDigraph::ArcIt a(g);
+        if(a == INVALID) {
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Emergency Out.\n");
+            #endif
+            return;
+        }
+        
+        if (erase_low_boundary_st(guided_saves, marked_source, marked_drain, consecutive_s_t)) { //1
+            continue;
+        }
+        
+        if (erase_low_deviation_st(guided_saves, marked_source, marked_drain, consecutive_s_t)) { //2
+            continue;
+        }
+        
+//        if (remove_small_low_st(guided_saves, marked_source, marked_drain, consecutive_s_t)) { //3
+//            continue;
+//        }
+        
+        if (prune_small_junctions(guided_saves, marked_source, marked_drain, consecutive_s_t)) { //4
+            continue;
+        }
+
+        if (threshold_filter(guided_saves, marked_source, marked_drain, consecutive_s_t, low_mark)) { //5
+            continue;
+        }
+        
+        break;
+    }
    
-   ListDigraph::ArcIt a(g);
-   if(a == INVALID) {
-       #ifdef ALLOW_DEBUG
-       logger::Instance()->debug("Locus destroyed.\n");
-       #endif
-       return;
-   }
+    remove_dead_ends(); 
+    ListDigraph::ArcIt a(g);
+    if(a == INVALID) {
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Locus destroyed.\n");
+        #endif
+        return;
+    }
    
     #ifdef ALLOW_DEBUG
     print_graph_debug_copy(std::cout, g, capacity, edge_specifier, edge_type, edge_lengths, s, t);
@@ -341,14 +425,26 @@ void base_manager::extract_transcripts_from_flow() {
     print_graph_debug_copy(std::cout, g, flow, edge_specifier, edge_type, edge_lengths, s, t);
     #endif
     
-    //ListDigraph::NodeMap<bool> resolved(g);
-    //while(simplify_ambiguous(unsecurityArc, unsecurityId, resolved, know_paths, know_back_paths, in_deg, out_deg));
+//
+//    if (nid == 3) { // only have s and t! all arcs are parallel transcripts
+//        float max_score = 0;
+//        for (ListDigraph::ArcIt a(g); a != INVALID;++a) {
+//            float score = means[a].compute_score();
+//            if (score > max_score) {
+//                max_score = score;
+//            }
+//        }
+//        for (ListDigraph::ArcIt a(g); a != INVALID;++a) {
+//            float score = means[a].compute_score();
+//            if (score < max_score * 0.02) {
+//                g.erase(a);
+//            }
+//        }
+//    }
+//    
     ListDigraph::ArcMap<bool> barred_high(g);
     while(simplify_ambiguous_ILP(unsecurityArc, unsecurityId, know_paths, know_back_paths, in_deg, out_deg, barred_high, false));
-//    ListDigraph::ArcMap<bool> barred_low(g);
-//    while(simplify_ambiguous_ILP(unsecurityArc, unsecurityId, know_paths, know_back_paths, in_deg, out_deg, barred_low, false));
-//    while(simplify_ambiguous_ILP(unsecurityArc, unsecurityId, know_paths, know_back_paths, in_deg, out_deg, barred_low, true));
-
+    
 //    gs << "Resolved graph ---\n";
 //    print_graph_gs(gs, g, flow, edge_specifier, edge_type, s, t);
     
@@ -383,6 +479,138 @@ void base_manager::extract_transcripts_from_flow() {
     print_graph_debug_copy(std::cout, g, capacity, edge_specifier, edge_type, edge_lengths, s, t);
     #endif
     
+}
+
+
+capacity_type base_manager::DKMeans( std::vector<capacity_type> &in) {
+    
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Inner Custer Group.\n");
+    #endif
+
+    if (in.empty()) {
+        return 0;
+    }
+    if (in.size() == 1) {
+         return 0;
+    }
+    
+    if (in.size() == 2) {
+         return in[0];
+    }
+    
+    //################ FORWARD ################
+    
+    unsigned int nUnique = 1;
+    for (std::vector<capacity_type>::iterator itr=in.begin()+1; itr!=in.end(); ++itr) {
+        if (*itr != *(itr -1)) {
+            nUnique++;
+        }
+    }
+    
+    if (nUnique == 1) {
+        return in[1];
+    }
+    
+    const unsigned int N_size = in.size();
+    const unsigned int K_size = std::min(nUnique, 4u);
+    
+    // 2D dynamic lookup table arrays
+    std::vector< std::vector< double > > costs( (K_size), std::vector<double>(N_size) );
+    std::vector< std::vector< unsigned int > > back( (K_size), std::vector<unsigned int>(N_size) );
+    
+    for(unsigned int i = 0; i < K_size; ++i) {
+            costs[i][0] = 0.0;
+            back[i][0] = 0;
+    }
+    
+    // temporary mean values
+    double mean_x1, mean_xj;
+    double d;
+    
+    for(unsigned int k = 0; k < K_size; ++k) {    
+        
+        mean_x1 = in[0];
+        
+        for(unsigned int i = std::max(1ul,(unsigned long)k); i < N_size; ++i) {
+            
+            if (k == 0) {
+                costs[0][i] = costs[0][i-1] + i / (double) (i + 1 ) *
+                          (in[i] - mean_x1) * (in[i] - mean_x1);
+                mean_x1 = (i * mean_x1 + in[i]) / (double) (i + 1);
+                back[0][i] = 0;
+            } else {
+                costs[k][i] = -1.0;
+                d = 0.0;
+                mean_xj = 0.0;
+                
+                for(unsigned int j = i; j >= k; --j) {
+                    
+                    d = d + (i - j) / (double) (i - j + 1) * 
+                            (in[j] - mean_xj) * (in[j] - mean_xj);
+                    mean_xj = (in[j] + (i - j) * mean_xj) / (double)(i - j + 1);
+
+                    if(costs[k][i] == -1.0) { //initialization of D[k,i]
+                        
+                        if(j == 1) {
+                            costs[k][i] = d;
+                            back[k][i] = j;
+                        } else {
+                            costs[k][i] = d + costs[k - 1][j - 1];
+                            back[k][i] = j;
+                        }
+                    } else {
+                        
+                        if(j == 1) {
+                            if(d <= costs[k][i]) {
+                                costs[k][i] = d;
+                                back[k][i] = j;
+                            }
+                        } else {
+                            if(d + costs[k - 1][j - 1] < costs[k][i]) {
+                                costs[k][i] = d + costs[k - 1][j - 1];
+                                back[k][i] = j;
+                            }
+                        }
+                    }
+
+                }
+                
+            }
+        }
+    }
+    
+//    logger::Instance()->debug("Matrix \n");
+//    for(unsigned int k = 0; k < K_size; ++k) {    
+//        for(unsigned int i = k; i < N_size; ++i) {
+//            logger::Instance()->debug(" " + std::to_string(costs[k][i]) + ";" + std::to_string(back[k][i]));
+//        }
+//        logger::Instance()->debug("\n");
+//    }
+    
+    
+    //################ Backwards ################
+    
+    // find smallest number of clusters k that contains all points
+    unsigned int range_start;
+    unsigned int seperator;
+    unsigned int range_end = N_size - 1;
+    for ( int k = K_size - 1; k>=0; --k) {
+        range_start = back[k][range_end];
+        
+        double sum = 0.0;
+        for(unsigned int i = range_start; i <= range_end; ++i)
+            sum += in[i];
+
+//        logger::Instance()->debug("CENTERX " + std::to_string(sum/(range_end-range_start+1)) + "\n");
+//        logger::Instance()->debug("CLUSTERX " + std::to_string(range_start) + " - " + std::to_string(range_end) + "\n");
+        
+        seperator = range_end;
+        
+        range_end = range_start - 1;
+    }
+    
+    return in[seperator];
 }
 
 void base_manager::find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths) {
@@ -764,7 +992,7 @@ void base_manager::filter_introns(ListDigraph::ArcMap<bool> &guided_saves,
                                 logger::Instance()->debug("Test " + std::to_string(g.id(a)) + " " + std::to_string(regions[a].get_average()) + " " + std::to_string(capacity[search]) + "\n");
                                 #endif  
 
-                                if (capacity[search] != 0 && capacity[a] < 45 && regions[a].get_average()*100 / capacity[search] < options::Instance()->get_intron_retention_threshold() )
+                                if (capacity[search] != 0 && ( (capacity[a] < 45 && regions[a].get_average()*100 / capacity[search] < options::Instance()->get_intron_retention_threshold()) || (capacity[a] <= 2) ) )
                                 {
 
                                     #ifdef ALLOW_DEBUG
@@ -844,7 +1072,8 @@ void base_manager::filter_broken_introns(ListDigraph::ArcMap<bool> &guided_saves
             ListDigraph::OutArcIt right_node(g, g.target(a));
             
             
-            if (left_node != INVALID && right_node != INVALID && edge_type[left_node] == edge_types::NODE && edge_type[right_node] == edge_types::NODE) {
+            if (left_node != INVALID && right_node != INVALID && edge_type[left_node] == edge_types::NODE && edge_type[right_node] == edge_types::NODE ) {
+//                && edge_specifier[right_node].node_index == edge_specifier[left_node].node_index + 3 ) {
             //        && (!marked_drain[left_node] && !marked_drain[right_node]) && (!marked_source[left_node] && !marked_source[right_node]) {
             
                 bool has_source = false;
@@ -887,16 +1116,16 @@ void base_manager::filter_broken_introns(ListDigraph::ArcMap<bool> &guided_saves
                     rcount source_cap = capacity[source];
                     rcount drain_cap = capacity[drain];
                     
-                    rcount source_cap_base = regions[source_base].get_average();
-                    rcount drain_cap_base = regions[drain_base].get_average();
+                    rcount source_cap_base = means[source_base].mean;
+                    rcount drain_cap_base = means[drain_base].mean;
                     rcount min = std::min(source_cap_base, drain_cap_base);
                     rcount max = std::max(source_cap_base, drain_cap_base);
                     
-//                    if (source_cap_base > 40 && drain_cap_base > 40) {
-//                        continue;
-//                    }
+                    if (source_cap_base > 30 && drain_cap_base > 30) {
+                        continue;
+                    }
                     
-                    if ( (source_cap_base == drain_cap_base || (max - min)*100/(max) < 30 ) && capacity[a] !=0 && source_cap_base *100 / capacity[a] < options::Instance()->get_broken_intron_retention_threshold() 
+                    if ( (source_cap_base == drain_cap_base || (max - min)*100/(max) < 30 || (max < 15 && min > 5)) && capacity[a] !=0 && source_cap_base *100 / capacity[a] < options::Instance()->get_broken_intron_retention_threshold() 
                             && drain_cap_base*100 / capacity[a] < options::Instance()->get_broken_intron_retention_threshold()) {
                     
                             kill_status[source] = true;
@@ -2151,12 +2380,11 @@ void base_manager::prune_unevidenced_arcs(ListDigraph::ArcMap<bool> &guided_save
     
 }
 
-void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
+void base_manager::remove_too_short_source_drain(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
     
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Pre-Filter\n");
     #endif
-    
     
     for (ListDigraph::OutArcIt o(g,s); o != INVALID; ) {
         
@@ -2174,7 +2402,7 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
         logger::Instance()->debug("Test " + std::to_string(g.id(no)) + " " + std::to_string(regions[no].get_length_to_first_zero_from_right()) + ".\n");
         #endif
         
-        if (regions[no].get_length_to_first_zero_from_right() <= 20 ) {
+        if (regions[no].get_length_to_first_zero_from_right() <= 20 || regions[no].get_average() < 2) {
             //erase
             #ifdef ALLOW_DEBUG
 	    logger::Instance()->debug("Erase Short Source " + std::to_string(g.id(arc)) + ".\n");
@@ -2199,7 +2427,7 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
         logger::Instance()->debug("Test " + std::to_string(g.id(ni)) + " " + std::to_string(regions[ni].get_length_to_first_zero_from_left()) + ".\n");
         #endif
         
-        if (regions[ni].get_length_to_first_zero_from_left() <= 20 ) {
+        if (regions[ni].get_length_to_first_zero_from_left() <= 20 || regions[ni].get_average() < 2) {
             //erase
             #ifdef ALLOW_DEBUG
 	    logger::Instance()->debug("Erase Short Drain " + std::to_string(g.id(arc)) + ".\n");
@@ -2209,6 +2437,16 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
         }
     }
     
+}
+  
+
+bool base_manager::remove_small_low_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
+
+        #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("small low st\n");
+    #endif
+    
+    bool res = false;
     for (ListDigraph::ArcIt a(g); a != INVALID; ) {
         ListDigraph::Arc arc(a);
         ++a;
@@ -2217,49 +2455,56 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
            rpos length = regions[arc].total_length;
            float average = regions[arc].get_average();
            
-            bool left_block = false;
             bool left_neighbour = false;
+            bool left_source = false;
+            bool left_other = false;
             for(ListDigraph::InArcIt ei(g, g.source(arc)); ei != INVALID; ++ei) {
                if (edge_specifier[ei].right_consecutive) {
                    left_neighbour = true;
-               } else if (edge_type[ei] != edge_types::HELPER) {
-                   left_block = true;
-                   break;
+               } else if (edge_type[ei] == edge_types::HELPER) {
+                   left_source = true;
                }
             }
            
-            bool right_block = false;
             bool right_neighbour = false;
+            bool right_drain = false;
             for(ListDigraph::OutArcIt eo(g, g.target(arc)); eo != INVALID; ++eo) {
                 if (edge_specifier[eo].left_consecutive ) {
                     right_neighbour = true;
-                } else if (edge_type[eo] != edge_types::HELPER) {
-                   right_block = true;
-                   break;
+                } else if (edge_type[eo] == edge_types::HELPER) {
+                   right_drain = true;
                 }
             }
            
             #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Test Arc " +  std::to_string(g.id(arc))  + " " + std::to_string(left_block) + " " + std::to_string(right_block) + " " + std::to_string(length) + " " + std::to_string(average) + "\n");
+            logger::Instance()->debug("Test Arc " +  std::to_string(g.id(arc))  + " " + std::to_string(left_source) + " " + std::to_string(right_drain) + " " + std::to_string(length) + " " + std::to_string(average) + "\n");
             #endif
-   
-            if (!left_block && !right_block && (!left_neighbour || !right_neighbour) && (length <= 15 || average <= 1.5) && !guided_saves[arc]) {
+
+            if ( (left_source || right_drain) && (!left_neighbour || !right_neighbour) && (length <= 15 || average <= 1.5) && !guided_saves[arc]) {
                
                 #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("Erase Empty " + std::to_string(g.id(arc)) + ".\n");
                 #endif
                
+
                 g.erase(arc);
                 ListDigraph::InArcIt ei(g, g.source(arc));
                 if (ei != INVALID) g.erase(ei);
                 ListDigraph::OutArcIt eo(g, g.target(arc));
                 if (eo != INVALID) g.erase(eo);
+                
+                res = true;
             } 
         }
     }
+    return res;
+}
     
+
+bool base_manager::erase_low_deviation_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
+
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Boundaries Scallop Like\n");
+    logger::Instance()->debug("low dev st\n");
     #endif
 
     std::vector<std::deque<ListDigraph::Node> > same_node_r(meta->size);
@@ -2276,6 +2521,102 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
             
         }
     }
+    
+    bool res = false;
+    for (ListDigraph::ArcIt a(g); a != INVALID;) {
+        
+        ListDigraph::Arc arc(a);
+        ++a;
+        
+        if (guided_saves[arc]) {
+            continue;
+        }
+        
+        if (edge_type[arc] == edge_types::NODE ) {
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Check Dev"  + std::to_string(g.id(arc)) + " " + std::to_string(regions[arc].get_deviation())  + "\n");
+            #endif
+            
+            
+            ListDigraph::InArcIt arc_left(g, g.source(arc));
+            ListDigraph::OutArcIt arc_right(g, g.target(arc));
+            
+            if (arc_left == INVALID || arc_right == INVALID) {
+                continue;
+            }
+            ListDigraph::InArcIt cl(arc_left);
+            ++cl;
+            ListDigraph::OutArcIt cr(arc_right);
+            ++cr;
+            
+            if (cl != INVALID || cr != INVALID) {
+                continue;
+            }
+            
+            if (edge_type[arc_left] != edge_types::HELPER && edge_type[arc_right] != edge_types::HELPER) {
+                continue;
+            }
+            
+            if (regions[arc].get_deviation() > 0.01) {
+                continue;
+            }
+            
+            if (edge_type[arc_left] == edge_types::HELPER) {
+                // we test if this is unique!
+                unsigned int counter = 0;
+                for (ListDigraph::InArcIt oi(g, g.target(arc_right)); oi != INVALID ;++oi) {
+                    ++counter;
+                }
+                if (counter == 1) {
+                    continue;
+                }
+            }
+            
+            if (edge_type[arc_right] == edge_types::HELPER) {
+                // we test if this is unique!
+                unsigned int counter = 0;
+                for (ListDigraph::OutArcIt oi(g, g.source(arc_left)); oi != INVALID ;++oi) {
+                    ++counter;
+                }
+                if (counter == 1) {
+                    continue;
+                }
+            }
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Erase by Dev " + std::to_string(g.id(arc)) + ".\n");
+            #endif
+            
+            res = true;
+            
+            g.erase(arc);
+            g.erase(arc_left);
+            g.erase(arc_right);
+        }
+    }
+    return res;
+}
+    
+
+bool base_manager::erase_low_boundary_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
+
+    std::vector<std::deque<ListDigraph::Node> > same_node_r(meta->size);
+    std::vector<std::deque<ListDigraph::Node> > same_node_l(meta->size);
+    std::vector<std::deque<ListDigraph::Arc> > same_node(meta->size);
+    
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+        if (edge_type[a] == edge_types::NODE) { //with opened middle node
+            
+            int ni = edge_specifier[a].node_index;
+            same_node_r[ni].push_back(g.target(a));
+            same_node_l[ni].push_back(g.source(a));
+            same_node[ni].push_back(a);
+            
+        }
+    }
+        
+    bool res = false;
     for (ListDigraph::ArcIt a(g); a != INVALID;) {
         
         ListDigraph::Arc arc(a);
@@ -2336,9 +2677,18 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
                 right += regions[*ni].get_average();
             }
 
+            #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Test N Scallop " + std::to_string(g.id(arc)) + " : " + std::to_string(we) + " " + std::to_string(left) + " " + std::to_string(right) + " : " + std::to_string(meta->exons[edge_specifier[node_left].node_index].right) + " " + std::to_string(meta->exons[edge_specifier[node_right].node_index].left)  + ".\n");
-            
+            #endif
+
             if ((out_degree == 1 && left>= 10.0 * we * we + 10.0) || (in_degree == 1 && right>= 10.0 * we * we + 10.0)) {
+                
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Erase by boundary " + std::to_string(g.id(arc)) + ".\n");
+                #endif
+
+                res = true;
+                
                 g.erase(arc);
                 if (!drain_exists && out_degree == 1) {
                     ListDigraph::Arc narc = g.addArc(g.target(node_left), t);
@@ -2353,12 +2703,14 @@ void base_manager::shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &gu
             }
         } 
     } 
+    return res;
 }
 
-void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
+
+bool base_manager::prune_small_junctions(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t) {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Prune Scallop Like\n");
+    logger::Instance()->debug("Small Junctions\n");
     #endif
     
     std::vector<std::deque<ListDigraph::Arc> > same_node(meta->size);
@@ -2370,6 +2722,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
         }
     }
     
+    bool res = false;
     for (ListDigraph::ArcIt a(g); a != INVALID;) {
         
         ListDigraph::Arc arc(a);
@@ -2407,12 +2760,18 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 
                     capacity_type w = capacity[oik];
 
+                    #ifdef ALLOW_DEBUG
                     logger::Instance()->debug("Test scallop L " + std::to_string(g.id(oik)) + " to " + std::to_string(g.id(arc)) + " : " + std::to_string(w) + " " + std::to_string(max_in) + " " + std::to_string(current) + ".\n");
+                    #endif
 
                      if ( max_in >= 2.0 * w * w + 18.0 && current >= 2.0 * w * w + 18.0 && !guided_saves[oik]) {
                         g.erase(oik);
+                        
+                        #ifdef ALLOW_DEBUG
                         logger::Instance()->debug("Kill scallop L " + std::to_string(g.id(arc)) + ".\n");
-                     }
+                        #endif
+                        res = true;
+                    }
 
                 }
             }
@@ -2443,37 +2802,45 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 
                     capacity_type w = capacity[oik];
 
+                    #ifdef ALLOW_DEBUG
                     logger::Instance()->debug("Test scallop R " + std::to_string(g.id(oik)) + " to " + std::to_string(g.id(arc)) + " : " + std::to_string(w) + " " + std::to_string(max_out) + " " + std::to_string(current) + ".\n");
-
-                     if ( max_out >= 2.0 * w * w + 18.0 && current >= 2.0 * w * w + 18.0 && !guided_saves[oik]) {
+                    #endif
+                    
+                    if ( max_out >= 2.0 * w * w + 18.0 && current >= 2.0 * w * w + 18.0 && !guided_saves[oik]) {
                         g.erase(oik);
+                        #ifdef ALLOW_DEBUG
                         logger::Instance()->debug("Kill scallop R " + std::to_string(g.id(arc)) + ".\n");
-                     }
+                        #endif
+                        res = true;
+                    }
 
                 }
             }
         } 
-    }    
+    }
+    return res;
+}
     
-    remove_dead_ends();
-    // after here second level kills
-      
-//        digraphWriter(g, std::cout)
-//                .arcMap("edge_specifier", edge_specifier)
-//                .arcMap("edge_type", edge_type)
-//                .arcMap("cap", capacity)
-//                .run();
+bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t, float low_mark) {
     
-   ListDigraph::ArcIt a(g);
-   if(a == INVALID) {
-       logger::Instance()->debug("Emergency Out.\n");
-       return;
-   }
+    #ifdef ALLOW_DEBUG
+	logger::Instance()->debug("Threshold " + std::to_string(low_mark) + ".\n");
+    #endif
+    
+    std::vector<std::deque<ListDigraph::Arc> > same_node(meta->size);
+
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+        if (edge_type[a] == edge_types::NODE) { //with opened middle node
+            int ni = edge_specifier[a].node_index;
+            same_node[ni].push_back(a);  
+        }
+    }
     
     ListDigraph::ArcMap<bool> filtered_sd(g);
     ListDigraph::ArcMap<bool> kill_status(g); // potentially killed edges!
 //    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
 //        if (edge_type[a] == edge_types::NODE) { 
+//            
 //            
 //            rcount max_in = 0;
 //            rcount total_in = 0;
@@ -2496,10 +2863,15 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 //                    // helper can't possibly be disproven/proven
 //                    continue;
 //                }      
-//                if ( 1.75 * capacity[i] * capacity[i] < max_in || capacity[i] * capacity[i] * 100 / float(total_in) < options::Instance()->get_arc_filter()) {
-//                //if ( capacity[i] * 100 / float(total_in) < options::Instance()->get_arc_filter() || (max_in >= 4 && capacity[i] < 2 ) || (max_in >= 15 && capacity[i] < 3 ) || (max_in >= 25 && capacity[i] < 4)) {
+//                
+//                //if ( 1.75 * capacity[i] * capacity[i] < max_in || capacity[i] * capacity[i] * 100 / float(total_in) < options::Instance()->get_arc_filter()) {
+//                if (marked_source[i] && edge_specifier[i].right_consecutive && capacity[i] * 100 / float(max_in) < 5 && capacity[i] < 20) {
 //                    kill_status[i] = true;
 //                    logger::Instance()->debug("Mark Left " + std::to_string(g.id(i)) + ".\n");
+//
+//                    ListDigraph::InArcIt is(g, g.source(i)); // get the last node
+//                    if (is != INVALID)  kill_status[is] = true;
+//
 //                }
 //            }
 //            
@@ -2524,10 +2896,14 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 //                    // helper can't possibly be disproven/proven
 //                    continue;
 //                }      
-//                if ( 1.75 * capacity[o] * capacity[o] < max_out || capacity[o] * capacity[o] * 100 / float(total_out) < options::Instance()->get_arc_filter()  ) {
-//                //if ( capacity[o] * 100 / float(total_out) < options::Instance()->get_arc_filter() || (max_out >= 4 && capacity[o] < 2 ) || (max_out >= 15 && capacity[o] < 3 ) || (max_out >= 25 && capacity[o] < 4)) {
+//                //if ( 1.75 * capacity[o] * capacity[o] < max_out || capacity[o] * capacity[o] * 100 / float(total_out) < options::Instance()->get_arc_filter()  ) {
+//                if (marked_drain[o] && edge_specifier[o].left_consecutive && capacity[o] * 100 / float(max_out) < 5 && capacity[o] < 20) {
 //                    kill_status[o] = true;
 //                    logger::Instance()->debug("Mark Right " + std::to_string(g.id(o)) + ".\n");
+//                    
+//                    ListDigraph::OutArcIt ot(g, g.target(o)); // get the last node
+//                    if (ot != INVALID)  kill_status[ot] = true;
+//
 //                }
 //            }
 //        } 
@@ -2550,7 +2926,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 	logger::Instance()->debug("Test low Source " + std::to_string(g.id(no)) + " " + std::to_string(regions[no].get_average_to_first_zero_from_right()) + ".\n");
         #endif
              
-        if (regions[no].get_average_to_first_zero_from_right() <= options::Instance()->get_low_edge_mark() || regions[no].total_length <= 20 ) {
+        if (regions[no].get_average_to_first_zero_from_right() <= low_mark || regions[no].total_length <= 20 ) {
             //erase
             #ifdef ALLOW_DEBUG
 	    logger::Instance()->debug("Mark Short Source " + std::to_string(g.id(arc)) + " " + std::to_string(regions[no].get_average()) + ".\n");
@@ -2606,7 +2982,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 	logger::Instance()->debug("Test low Drain " + std::to_string(g.id(ni)) + " " + std::to_string(regions[ni].get_average_to_first_zero_from_left()) + ".\n");
         #endif
         
-        if (regions[ni].get_average_to_first_zero_from_left() <= options::Instance()->get_low_edge_mark()  || regions[ni].total_length <= 20 ) {
+        if (regions[ni].get_average_to_first_zero_from_left() <= low_mark  || regions[ni].total_length <= 20 ) {
             //erase
             #ifdef ALLOW_DEBUG
 	    logger::Instance()->debug("Mark Short Drain " + std::to_string(g.id(arc)) + " " + std::to_string(regions[ni].get_average()) + ".\n");
@@ -2645,7 +3021,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
         }
     }    
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
-        if (edge_type[a] == edge_types::EXON && capacity[a] < options::Instance()->get_low_edge_mark()+1 ) {
+        if (edge_type[a] == edge_types::EXON && capacity[a] <= low_mark) {
             kill_status[a] = true;
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Mark Exon by threshold " + std::to_string(g.id(a)) + ".\n");
@@ -2751,9 +3127,9 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
             bool has_out = has_out_arc || has_out_helper; 
             
             bool has_non_sd_filtered_in = false;
-            capacity_type max_count_in = 0;
+            float max_count_in = 0;
             bool has_non_sd_filtered_out = false;
-            capacity_type max_count_out = 0;
+            float max_count_out = 0;
             if (edge_type[a] == edge_types::NODE) {
                 for (std::deque<ListDigraph::Arc>::iterator ni = same_node[edge_specifier[a].node_index].begin(); ni != same_node[edge_specifier[a].node_index].end(); ++ni) {
                     for (ListDigraph::InArcIt i(g, g.source(*ni)); i!=INVALID; ++i) {
@@ -2762,11 +3138,8 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
                             has_non_sd_filtered_in = true;
                         }
                         
-                        capacity_type cap = capacity[i];
-                        if (marked_source[i] && edge_type[i] == edge_types::EXON) {
-                             ListDigraph::InArcIt i2(g, g.source(i));
-                             if(i2 != INVALID) cap = regions[i2].get_average_to_first_zero_from_right();
-                        }
+                        float cap = means[i].mean;
+
                         if (max_count_in < cap) {
                             max_count_in = cap;
                         }
@@ -2776,12 +3149,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
                             has_non_sd_filtered_out = true;
                         }
                         
-                        capacity_type cap = capacity[o];
-                        if (marked_drain[o] && edge_type[o] == edge_types::EXON) {
-                             ListDigraph::OutArcIt o2(g, g.target(o));
-
-                             if(o2 != INVALID) cap = regions[o2].get_average_to_first_zero_from_left();
-                        }
+                        float cap = means[o].mean;
                         
                         if (max_count_out < cap) {
                             max_count_out = cap;
@@ -2792,16 +3160,12 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
             
             if (!has_in) {               
                 bool has_max = false;
-                capacity_type max_count = 0;                
+                float max_count = 0;                
                 std::deque<ListDigraph::Arc> max_arc_all;
 
                 for (ListDigraph::InArcIt i(g, g.source(a)); i!=INVALID; ++i) {
 
-                    capacity_type cap = capacity[i];
-                    if (marked_source[i] && edge_type[i] == edge_types::EXON) {
-                         ListDigraph::InArcIt i2(g, g.source(i));
-                         if(i2 != INVALID) cap = regions[i2].get_average_to_first_zero_from_right();
-                    }
+                    float cap = means[i].mean;
 
                     if (cap > max_count || !has_max) {
                         max_arc_all.clear();
@@ -2828,18 +3192,15 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
 
             if (!has_out) {                
                 bool has_max = false;
-                capacity_type max_count = 0;                
+                float max_count = 0;                
                 std::deque<ListDigraph::Arc> max_arc_all;
                 
                 for (ListDigraph::OutArcIt o(g, g.target(a)); o!=INVALID; ++o) {
                     
-                    capacity_type cap = capacity[o];
-                    if (marked_drain[o] && edge_type[o] == edge_types::EXON) {
-                         ListDigraph::OutArcIt o2(g, g.target(o));
+                    float cap = means[o].mean;
 
-                         if(o2 != INVALID) cap = regions[o2].get_average_to_first_zero_from_left();
-                    }
-                      
+                    logger::Instance()->debug("Cap " + std::to_string(g.id(o)) + " " + std::to_string(cap) +".\n");
+                    
                     if (cap > max_count || !has_max) {
                         max_arc_all.clear();
                         max_arc_all.push_back(o);
@@ -2867,31 +3228,8 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
             kill_status[a] = (kill_status[a] && !next_rescue[a]);
         }
     }            
-                
-//    // test if this separates, if yes we can't do it
-//    ListDigraph wc;
-//    ListDigraph::ArcMap<bool> killc(wc);
-//    ListDigraph::ArcMap<bool> guided_saves_c(wc);
-//    ListDigraph::Node cs, ct;
-//    DigraphCopy<ListDigraph, ListDigraph> copy(g,wc);
-//    copy.arcMap(kill_status, killc).arcMap(guided_saves, guided_saves_c)
-//     .node(s,cs).node(t,ct).run();
-//    
-//    for (ListDigraph::ArcIt a(wc); a != INVALID; ) {
-//        if (killc[a] == true && guided_saves_c[a] == false) {
-//            ListDigraph::Arc c(a);
-//            ++a;
-//            wc.erase(c);
-//        } else {
-//            ++a;
-//        }
-//    }
-//    
-//    Dfs<ListDigraph> dfs_b(wc);
-//    if (!dfs_b.run(cs,ct)) {
-//        return;
-//    }
-    
+         
+    bool changed = false;
     for (ListDigraph::ArcIt a(g); a != INVALID; ) {
         if (kill_status[a] == true && guided_saves[a] == false) {
             ListDigraph::Arc c(a);
@@ -2900,6 +3238,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
             logger::Instance()->debug("Erase " + std::to_string(g.id(c)) +"\n");
             #endif
             g.erase(c);
+            changed = true;
         } else {
             ++a;
         }
@@ -2908,7 +3247,7 @@ void base_manager::prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, L
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Initial Erased Done \n");
     #endif
-    
+    return changed;
 }
 
 void base_manager::remove_dead_ends() {
@@ -2996,19 +3335,33 @@ void base_manager::denoise_graph(ListDigraph::ArcMap<bool> &guided_saves, ListDi
     dfs.start();
 
     
-    ListDigraph::ArcMap<rcount> average_push_fwd(g); // init as 0, we set a value
-    ListDigraph::ArcMap<rcount> average_push_bwd(g);
+//    ListDigraph::ArcMap<rcount> average_push_fwd(g); // init as 0, we set a value
+//    ListDigraph::ArcMap<rcount> average_push_bwd(g);
     
     ListDigraph::ArcMap<rcount> average_push(g); // init as 0, we set a value
 
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) { // init as the average!
         
-         average_push[a]= means[a].mean;
+        average_push[a]= means[a].mean;
          
-         if (marked_source[a] || marked_drain[a]) {
-             average_push[a] = regions[a].get_average();
-         }
-        
+        if (marked_source[a]) {
+            average_push[a] = rec_score_backward(a);
+        }
+        if (marked_drain[a]) {
+            average_push[a] = rec_score_forward(a);
+        }
+         
+//        average_push_fwd[a]= means[a].compute_score();
+//        average_push_bwd[a]= means[a].compute_score();
+//        if (edge_type[a] == edge_types::EXON) {
+//            average_push_fwd[a] = rec_score_forward(a);
+//            average_push_bwd[a] = rec_score_backward(a);
+//        }
+//        
+//        #ifdef ALLOW_DEBUG
+//            logger::Instance()->debug("fwd/bwd " + std::to_string(g.id(a)) + " " + std::to_string( average_push_fwd[a]) + " / " + std::to_string( average_push_bwd[a]) + "\n");
+//        #endif
+//        
 //        if (edge_type[a] == edge_types::NODE) {
 //            average_push_fwd[a]= regions[a].get_average();
 //            average_push_bwd[a]= regions[a].get_average();
@@ -3351,6 +3704,52 @@ bool base_manager::test_consistent_sloping_drain(ListDigraph::Node p, rpos lengt
     return found;
 }
 
+float base_manager::rec_score_forward(ListDigraph::Arc a) {
+    
+    unsigned int count = 0;
+    for (ListDigraph::InArcIt i(g, g.source(a)); i != INVALID ;++i) {
+         ++count;
+    }
+    if (count > 1) {
+        return 0;
+    }
+    
+    float score_left = means[a].compute_score();
+    
+    float score_right = 0;
+    for (ListDigraph::OutArcIt i(g, g.target(a)); i != INVALID ;++i) {
+           score_right+=rec_score_forward(i);
+    }
+    if (score_right == 0) {
+        return score_left;
+    }
+    
+    return sqrt(score_left * score_right);
+}
+
+
+float base_manager::rec_score_backward(ListDigraph::Arc a) {
+    
+    unsigned int count = 0;
+    for (ListDigraph::OutArcIt i(g, g.target(a)); i != INVALID ;++i) {
+         ++count;
+    }
+    if (count > 1) {
+        return 0;
+    }
+    
+    float score_right = means[a].compute_score();
+    
+    float score_left = 0;
+    for (ListDigraph::InArcIt i(g, g.source(a)); i != INVALID ;++i) {
+           score_left+=rec_score_forward(i);
+    }
+    if (score_left == 0) {
+        return score_right;
+    }
+    
+    return sqrt(score_left * score_right);
+}
 
 void base_manager::push_potential_forward(ListDigraph::ArcMap<rcount> &cp_fwd, std::deque<ListDigraph::Node> &top_order, ListDigraph::ArcMap<rcount> &average_push, ListDigraph::ArcMap<bool> &push_block) {
         
@@ -3377,7 +3776,7 @@ void base_manager::push_potential_forward(ListDigraph::ArcMap<rcount> &cp_fwd, s
             for (ListDigraph::InArcIt inpi(g, g.source(node)); inpi != INVALID ;++inpi) {
                 left += cs[inpi];
             }
-            
+                        
             // compute potentials
             rcount max = regions[node].get_max();
             rcount right = regions[node].get_right();
@@ -3424,16 +3823,16 @@ void base_manager::push_potential_forward(ListDigraph::ArcMap<rcount> &cp_fwd, s
                 }
             }
             
-            if (helper) {
-                // find how many sinks we share!
-                unsigned int count = 0;
-                unsigned int calls = 0;
-                count_drains_in_distance(*n, raw->average_fragment_length, count, calls);
-                
-//                logger::Instance()->debug("Helper Count " + std::to_string(count) + "\n");
-                
-                right_potential = right_potential / float(count);
-            }
+//            if (helper) {
+//                // find how many sinks we share!
+//                unsigned int count = 0;
+//                unsigned int calls = 0;
+//                count_drains_in_distance(*n, raw->average_fragment_length, count, calls);
+//                
+////                logger::Instance()->debug("Helper Count " + std::to_string(count) + "\n");
+//                
+//                right_potential = right_potential / float(count);
+//            }
             
 //            logger::Instance()->debug("Right Potential " + std::to_string(g.id(*n)) + " " + std::to_string(right_potential) + "\n");
             
@@ -3502,6 +3901,8 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
                 right_potential = max - right;
             }
             
+//           logger::Instance()->debug("Pots " + std::to_string(g.id(*n)) + ": " + std::to_string(left_potential)  + " " + std::to_string(right_potential) + " PUSH " + std::to_string(in_push) + "\n");
+            
             // find increases
             if (in_push > right_potential) {
                 in_push -= right_potential;
@@ -3510,6 +3911,7 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
             }
             // we set the push
             cp_bw[node] = in_push; // the increase value
+//            logger::Instance()->debug("SetNode " + std::to_string(g.id(node)) + " " + std::to_string(cp_bw[node]) + "\n");
             
             left_potential += in_push; // we transport excess potential to the right
             
@@ -3530,16 +3932,16 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
                 }
             }
             
-            if (helper) {
-                // find how many sinks we share!
-                unsigned int count = 0;
-                unsigned int calls = 0;
-                count_sources_in_distance(*n, raw->average_fragment_length, count, calls);
-                
-//                logger::Instance()->debug("Helper " + std::to_string(count) + "\n");
-                
-                left_potential = left_potential / float(count);
-            }
+//            if (helper) {
+//                // find how many sinks we share!
+//                unsigned int count = 0;
+//                unsigned int calls = 0;
+//                count_sources_in_distance(*n, raw->average_fragment_length, count, calls);
+//                
+////                logger::Instance()->debug("Helper " + std::to_string(count) + "\n");
+//                
+//                left_potential = left_potential / float(count);
+//            }
 //            
 //            logger::Instance()->debug("Left Potential " + std::to_string(g.id(*n)) + " " + std::to_string(left_potential) + "\n");
             
@@ -3556,6 +3958,10 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
                         cs[oi] = left;                        
                     }
                 }
+//                
+//                #ifdef ALLOW_DEBUG
+//                logger::Instance()->debug("Set " + std::to_string(g.id(oi)) + " " + std::to_string(cp_bw[oi]) + "\n");
+//                #endif
             }
         }
     }
@@ -3696,7 +4102,9 @@ void base_manager::push_potential_forward_alt(ListDigraph::ArcMap<rcount> &cp_fw
         
      for (std::deque<ListDigraph::Node>::iterator n = top_order.begin(); n!= top_order.end(); ++n) {
         
+         #ifdef ALLOW_DEBUG 
         logger::Instance()->debug("Push_Node " + std::to_string(g.id(*n)) + "\n");
+        #endif
                   
         // first test if we can propagate
         ListDigraph::InArcIt innt(g, *n);
@@ -3749,7 +4157,9 @@ void base_manager::push_potential_forward_alt(ListDigraph::ArcMap<rcount> &cp_fw
                     }
                 }
                 
-               logger::Instance()->debug("Set " + std::to_string(g.id(oi)) + " " + std::to_string(cp_fwd[oi]) + "\n");
+                #ifdef ALLOW_DEBUG 
+                logger::Instance()->debug("Set " + std::to_string(g.id(oi)) + " " + std::to_string(cp_fwd[oi]) + "\n");
+                #endif
             }
         }
     }
@@ -3763,7 +4173,9 @@ void base_manager::push_potential_backward_alt(ListDigraph::ArcMap<rcount> &cp_b
         bool node_right= (onnt != INVALID && edge_type[onnt] == edge_types::NODE);
         if (node_right) {
             
+             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Push_Node " + std::to_string(g.id(*n)) + "\n");
+            #endif
 
             // this means we can only have one valid left, to of course multiple outs edges
             ListDigraph::Arc node(onnt);
@@ -3811,7 +4223,9 @@ void base_manager::push_potential_backward_alt(ListDigraph::ArcMap<rcount> &cp_b
                     }
                 }
                 
+                #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("Set " + std::to_string(g.id(oi)) + " " + std::to_string(cp_bwd[oi]) + "\n");
+                #endif
             }
         }
     }
@@ -5649,23 +6063,46 @@ bool base_manager::simplify_ambiguous_ILP(
     
     ListDigraph::ArcMap<arc_bridge> temp_know_paths(g);
     ListDigraph::ArcMap<arc_back_bridge> temp_know_back_paths(g);
+    ListDigraph::ArcMap<arc_bridge> temp_know_paths_add_max(g);
+    ListDigraph::ArcMap<arc_back_bridge> temp_know_back_paths_add_max(g);
     ListDigraph::NodeMap<classify_component> classify(g);
+    ListDigraph::NodeMap<std::unordered_set<int> > single_to_single(g);
+    ListDigraph::NodeMap<std::unordered_set<int> > block_delete_high_res(g);
     ListDigraph::NodeMap<std::unordered_set<int> > block_delete(g);
-    ListDigraph::NodeMap<std::unordered_set<int> > block_delete_weak(g);
     
-    ListDigraph::NodeMap<std::deque<std::set<int> > > left_groups(g);
-    ListDigraph::NodeMap<std::deque<std::set<int> > > right_groups(g);
+    ListDigraph::NodeMap<std::map<int, evidence_group> > left_groups_ids(g);
+    ListDigraph::NodeMap<std::map<int, evidence_group> > right_groups_ids(g);
     
     // ######### Classify Each Node ######### //
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Classify ##################### \n");
     #endif
-    
+  
     for (ListDigraph::NodeIt n(g); n != INVALID;++n) {
         // we can erase while looping, but be careful
 
         ListDigraph::Node node(n);       
-        if ( out_deg[node] > 1 && in_deg[node] > 1) {
+        
+        // out_deg and in_deg unfunction because lemon are fucking stupip fucks
+        
+        unsigned int pre_size = 0;
+        unsigned int post_size = 0;
+        
+        for (ListDigraph::InArcIt a(g, node); a!=INVALID; ++a) {
+                if (barred[a] && !final_resolve) { // do NOT include barred edges unless for final resolutions!
+                    continue;
+                }
+                ++pre_size;
+            }
+            
+            for (ListDigraph::OutArcIt a(g, node); a!=INVALID; ++a) {
+                if (barred[a] && !final_resolve) { // do NOT include barred edges unless for final resolutions!
+                    continue;
+                }
+                ++post_size;
+            }
+        
+        if ( pre_size > 1 && post_size > 1) {
             // this is an unresolvable node
                         
             #ifdef ALLOW_DEBUG
@@ -5683,7 +6120,7 @@ bool base_manager::simplify_ambiguous_ILP(
                     // helper can't possibly be disproven/proven
                     helper = true;
                     continue;
-                } else if (barred[a] && !final_resolve) { // do NOT include barred edges unless for final resolutions!
+                } else if (barred[a] && !final_resolve  || edge_type[a] == edge_types::RESOLVE_HELPER) { // do NOT include barred edges unless for final resolutions!
                     continue;
                 }
                 pre_path.push_back( path(&edge_specifier[a], node_index[g.source(a)], a, g.source(a)) );
@@ -5694,7 +6131,7 @@ bool base_manager::simplify_ambiguous_ILP(
                     // helper can't possibly be disproven/proven
                     helper = true;
                     continue;
-                } else if (barred[a] && !final_resolve) { // do NOT include barred edges unless for final resolutions!
+                } else if (barred[a] && !final_resolve || edge_type[a] == edge_types::RESOLVE_HELPER) { // do NOT include barred edges unless for final resolutions!
                     continue;
                 }
                 post_path.push_back( path(&edge_specifier[a], node_index[g.target(a)], a, g.target(a)) );
@@ -5715,14 +6152,24 @@ bool base_manager::simplify_ambiguous_ILP(
             #endif
             
             // we need to get the id of the exon we bridge here
+            ListDigraph::Arc ei;
             ListDigraph::OutArcIt a(g, node);
-            while (edge_type[a] == edge_types::HELPER) {
+            while (a != INVALID && (edge_type[a] == edge_types::HELPER || edge_type[a] == edge_types::RESOLVE_HELPER)) {
                 ++a;
             }
-            unsigned int exon_index = edge_specifier[a].id.find_first();
+            ei = a;
+            if (a==INVALID) {
+                ListDigraph::InArcIt a(g, node);
+                while (edge_type[a] == edge_types::HELPER || edge_type[a] == edge_types::RESOLVE_HELPER) {
+                    ++a;
+                }
+                ei = a;
+            }
             
-            unsigned int pre_size = pre_path.size();
-            unsigned int post_size = post_path.size();
+            unsigned int exon_index = edge_specifier[ei].id.find_first();
+            
+            unsigned int pre_size_paths = pre_path.size();
+            unsigned int post_size_paths = post_path.size();
             
             // we are only interested in the direct arcs
             // all paths going further cannot be resolved, because more path through these nodes might exist
@@ -5744,7 +6191,7 @@ bool base_manager::simplify_ambiguous_ILP(
                 rcount count = si->first->frag_count + si->second; 
                 
                 #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("Test Overarch: " + left.to_string() + " " + right.to_string() + " " + std::to_string(count) + "\n");
+                logger::Instance()->debug("Test Overarch:  " + left.to_string() + " " + right.to_string() + " " + std::to_string(count) + "\n");
                 #endif
                 
                 unsigned int leftmost = si->first->range_start;
@@ -5805,11 +6252,98 @@ bool base_manager::simplify_ambiguous_ILP(
             pre_path_match.clear();
             post_path_match.clear();
             
+            // +++++++++++++++++++++  Treat Pairs as Overarching when possible  +++++++++++++++++++++
+            // we start with fragments overarching this node before dealing with paired data
+            last = exon_edge();
+            std::unordered_set<paired_exon_group *> opairs;
+            for (graph_list<paired_exon_group *>::iterator pi = raw->pairs_for_exon[exon_index].begin(); pi != raw->pairs_for_exon[exon_index].end() ; ++pi) {
+                
+
+                if ( (*pi)->left_read->range_end < exon_index && (*pi)->right_read->range_start > exon_index) { 
+                    continue;
+                } 
+                
+                exon_edge join = (*pi)->left_read->bin_mask;
+                join.join_edge((*pi)->right_read->bin_mask);
+                
+                exon_edge left, right;
+                join.left_split(exon_index, left);
+                join.right_split(exon_index, right);
+                
+                rcount count = (*pi)->count; 
+                
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Test OverarchB: " + left.to_string() + " " + right.to_string() + " " + std::to_string(count) + "\n");
+                logger::Instance()->debug("       BasedOn: " + (*pi)->left_read->bin_mask.to_string() + " " + (*pi)->right_read->bin_mask.to_string() + "\n");
+                #endif
+                
+                unsigned int leftmost = (*pi)->left_read->range_start;
+                unsigned int rightmost = (*pi)->right_read->range_end;
+                
+                if (last != left) {
+                    // finalize last set :)
+                    
+                    pre_path_match.clear();
+
+                    // go over all left paths first
+                    for ( unsigned i = 0; i < pre_path.size(); ++i) {
+
+                        path *pp = &pre_path[i];
+                        
+                        // can this match? path long enough?
+                        if (pp->border_index > leftmost) {
+                            // extendpath
+                            extend_path_left(pre_path, pp, leftmost, g, edge_specifier, edge_type, node_index, know_paths);
+                        }
+                        
+                        if (left.is_contained_in(pp->identifier, leftmost, exon_index)) {
+                            pre_path_match.insert( g.id(pp->starting_arc) );
+//                            #ifdef ALLOW_DEBUG
+//                            logger::Instance()->debug("Match L: " + std::to_string(g.id(pp->starting_arc)) + "\n");
+//                            #endif  
+                        }
+                    }
+                    last = left; 
+                }
+                    
+                post_path_match.clear();
+                   
+                // then we go over right paths
+                for ( rpos i = 0; i < post_path.size(); ++i ) {
+                    
+                    path *pp = &post_path[i];
+                    
+                    // can this match? path long enough?
+                    if (pp->border_index < rightmost) {
+                        // extendpath
+                        extend_path_right(post_path, pp, rightmost, g, edge_specifier, edge_type, node_index, know_paths);
+                    }
+                    
+                    if (right.is_contained_in(pp->identifier, exon_index, rightmost)) {
+                        post_path_match.insert(g.id(pp->starting_arc));
+//                        #ifdef ALLOW_DEBUG
+//                        logger::Instance()->debug("Match R: " + std::to_string(g.id(pp->starting_arc)) + "\n");
+//                        #endif 
+                    }
+                }
+                
+                if (!pre_path_match.empty() && !post_path_match.empty()) { 
+                    hit_reference[pre_path_match][post_path_match] += count; 
+                    opairs.insert(*pi);
+                }
+            }
+            
+            pre_path_match.clear();
+            post_path_match.clear();
             
             // +++++++++++++++++++++  Paired  +++++++++++++++++++++
             // in the second step we apply paired end data
             exon_group* lastp = NULL;
             for (graph_list<paired_exon_group *>::iterator pi = raw->pairs_for_exon[exon_index].begin(); pi != raw->pairs_for_exon[exon_index].end() ; ++pi) {
+                
+                if (opairs.find(*pi) != opairs.end()) {
+                    continue;
+                }
                 
                 exon_edge left_a, left_b, right_a, right_b;
                 rpos la1, la2, lb1, lb2, ra1, ra2, rb1, rb2;
@@ -5853,7 +6387,7 @@ bool base_manager::simplify_ambiguous_ILP(
                 rcount count = (*pi)->count; 
                 
                 #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("Test Paired: " + (*pi)->left_read->bin_mask.to_string() + " " + (*pi)->right_read->bin_mask.to_string() + " " + std::to_string(count) + "\n");
+                logger::Instance()->debug("Test Paired:    " + (*pi)->left_read->bin_mask.to_string() + " " + (*pi)->right_read->bin_mask.to_string() + " " + std::to_string(count) + "\n");
                 #endif
                 
                 if (lastp != (*pi)->left_read ) {
@@ -5903,7 +6437,42 @@ bool base_manager::simplify_ambiguous_ILP(
                     }
                 }
                 
-                if (!pre_path_match.empty() && !post_path_match.empty()) { 
+                bool left_unique = pre_path_match.size() == 1;
+                bool right_unique = post_path_match.size() == 1;
+                if (!left_unique && !pre_path_match.empty()) {
+                    std::set<int>::iterator first = pre_path_match.begin();
+                    std::set<int>::iterator pi = first;
+                    ++pi;
+                    bool breaked = false;
+                    for (; pi !=  pre_path_match.end(); ++pi) {
+                        rpos pos = std::max(node_index[g.source(g.arcFromId(*first))], node_index[g.source(g.arcFromId(*pi))]);
+                        if (!edge_specifier[g.arcFromId(*first)].is_contained_in(edge_specifier[g.arcFromId(*pi)], std::max(la1, pos), exon_index)) {
+                            breaked = true;
+                            break;
+                        }
+                    }
+                    if (!breaked) {
+                        left_unique = true;
+                    }
+                }
+                if (!right_unique && !post_path_match.empty()) {
+                    std::set<int>::iterator first = post_path_match.begin();
+                    std::set<int>::iterator pi = first;
+                    ++pi;
+                    bool breaked = false;
+                    for (; pi !=  post_path_match.end(); ++pi) {
+                        rpos pos = std::max(node_index[g.target(g.arcFromId(*first))], node_index[g.target(g.arcFromId(*pi))]);
+                        if (!edge_specifier[g.arcFromId(*first)].is_contained_in(edge_specifier[g.arcFromId(*pi)], std::min(pos, rb2), exon_index)) {
+                            breaked = true;
+                            break;
+                        }
+                    }
+                    if (!breaked) {
+                        right_unique = true;
+                    }
+                }
+                
+                if (left_unique && right_unique) { 
                     hit_reference[pre_path_match][post_path_match] += count;
                 }
             }
@@ -5914,61 +6483,78 @@ bool base_manager::simplify_ambiguous_ILP(
             // +++++++++++++++++++++  Get Simplified Block Info  +++++++++++++++++++++
             
             // we check for delete-groups as well!
-            std::deque<std::set<int> > left_raw_groups;
-            std::deque<std::set<int> > right_raw_groups;
+            std::set<std::set<int> > left_raw_groups;
+            std::set<std::set<int> > right_raw_groups;
+            
+            // valid!
+            std::map<std::set<int> , std::map<std::set<int>,  bool > > valid_hits;
             
             // transfer reference to sorted list
             typedef std::deque<std::pair< std::set<int>, rcount> > ISRT;
             typedef std::deque<std::pair<std::set<int>, ISRT > > SRT;
             
+            unsigned int max_mult = 0;
+            
             SRT s_reference;
             for (std::map<std::set<int> , std::map<std::set<int>,  rcount > >::iterator i = hit_reference.begin(); i != hit_reference.end(); ++i) {
                 s_reference.push_back(std::make_pair(i->first, std::deque<std::pair< std::set<int>, rcount> >()));
                 
-                left_raw_groups.push_back(i->first);
+                if (i->first.size() > max_mult) {
+                    max_mult = i->first.size();
+                }
                 
                 for (std::map<std::set<int>,  rcount >::iterator i2 = i->second.begin(); i2 != i->second.end(); ++i2) {
+                    
+                    if (i2->first.size() > max_mult) {
+                        max_mult = i2->first.size();
+                    }
+                    
                     s_reference.back().second.push_back(std::make_pair(i2->first, i2->second));
                     
-                    right_raw_groups.push_back(i2->first);    
                 }    
                 std::sort(s_reference.back().second.begin(), s_reference.back().second.end(), []( std::pair< std::set<int>, rcount > & a, std::pair< std::set<int>, rcount > & b) -> bool {return a.first.size() < b.first.size();});
             }
             std::sort(s_reference.begin(), s_reference.end(), []( std::pair<std::set<int>,  std::deque<std::pair< std::set<int>, rcount> > > & a,std::pair<std::set<int>,  std::deque<std::pair< std::set<int>, rcount> > > & b) -> bool {return a.first.size() < b.first.size();});
             
-            // we compute the groups first            
-            compute_edge_groups(left_raw_groups, left_groups[n]);
-            compute_edge_groups(right_raw_groups, right_groups[n]);
-            
             // we go over the evidences!
-            path_evidence_map<int, path_evidence > single_evidences;
             path_evidence_map<int, path_evidence > evidences;
             bool has_evidence = false;     
             
-            rcount threshold = 0;
-            
-            for (SRT::iterator i = s_reference.begin(); i != s_reference.end(); ++i) { 
+            rcount threshold = 10;
+//            std::map<int, std::pair<unsigned int, rcount> > individual_count_left;
+//            std::map<int, std::pair<unsigned int, rcount> > individual_count_right;
                 
-                if (i->first.size() == pre_size) {
+//            for (unsigned int max_mult_counter = 1; max_mult_counter <= max_mult; ++max_mult_counter) {
+//                
+//                std::map<int, std::pair<unsigned int, rcount> > step_count_left;
+//                std::map<int, std::pair<unsigned int, rcount> > step_count_right;
+                
+            for (SRT::iterator i = s_reference.begin(); i != s_reference.end(); ++i) { 
+
+                if (i->first.size() == pre_size_paths) {
                     continue;
                 }
-                
+
                 #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("-----\n");
                 for (std::set<int>::iterator li = i->first.begin(); li != i->first.end(); ++li) {
                     logger::Instance()->debug("GL:  " + std::to_string(*li) + "\n");
                 }
                 #endif
-                
+
                 path_evidence_map<int, rcount> all_found;
                 path_evidence_set<int> pre_left, pre_right;
                 rcount total_count = 0;
                 for (ISRT::iterator i2 = i->second.begin(); i2 != i->second.end(); ++i2) {
-                    
-                    if (i2->first.size() == post_size) {
+
+//                        if (max_mult_counter != i->first.size() && max_mult_counter != i2->first.size()) {
+//                            continue;
+//                        }
+
+                    if (i2->first.size() == post_size_paths) {
                         continue;
                     }
-                    
+
                     #ifdef ALLOW_DEBUG
                     logger::Instance()->debug("> " + std::to_string(i2->second) + "\n");
                     for (std::set<int>::iterator it = i2->first.begin(); it!=i2->first.end(); ++it) {
@@ -5977,42 +6563,42 @@ bool base_manager::simplify_ambiguous_ILP(
                     #endif
 
                     if (i->first.size() == 1 && i2->first.size() == 1) {
-                        all_found[*i2->first.begin()] += i2->second; 
-                        total_count += i2->second;
-                        
-                        block_delete[n].insert(*i->first.begin());
-                        block_delete[n].insert(*i2->first.begin());
-                        
-                        single_evidences[*i->first.begin()].add_evidence(*i2->first.begin(), i2->second);
-                        
-                        continue;
-                    }
-                    
-                    bool valid = true;
-                    for (ISRT::iterator i2_p = i->second.begin(); i2_p != i2; ++i2_p) {
 
-                        bool right_fit = true;
-                        for (std::set<int>::iterator ri = i2_p->first.begin(); ri != i2_p->first.end(); ++ri) {
-                            if (i2->first.find(*ri) == i2->first.end()) {
-                                right_fit = false;
-                                break;
-                            }
-                        }
-                        if (right_fit) {
-                            valid = false;
-                            break;
-                        }
+                        single_to_single[n].insert(*i->first.begin());
+                        single_to_single[n].insert(*i2->first.begin());
+
+                        block_delete_high_res[n].insert(*i->first.begin());
+                        block_delete_high_res[n].insert(*i2->first.begin());
                     }
+
                     
-                    if (!valid) {
-                        #ifdef ALLOW_DEBUG
-                        logger::Instance()->debug("invalid 1\n");
-                        #endif
-                        continue;
-                    }
+//                    bool valid = true;
+//                    for (std::set<int>::iterator ri = i2->first.begin(); ri != i2->first.end(); ++ri) {
+//                        if (all_found.find(*ri) != all_found.end()) {
+//                            valid = false;
+//                            break;
+//                        }
+//                    }
+//                    if (!valid) {
+//                        #ifdef ALLOW_DEBUG
+//                        logger::Instance()->debug("invalid 1\n");
+//                        #endif
+//                        continue;
+//                    }
+//                    
+//                    for (std::set<int>::iterator li = i->first.begin(); li != i->first.end(); ++li) {
+//                        for (std::set<int>::iterator ri = i2->first.begin(); ri != i2->first.end(); ++ri) {
+//                            if (evidences[*li].is_evidence(*ri)) {
+//                                valid = false;
+//                                pre_left.insert(*li);
+//                                pre_right.insert(*ri);
+//                            }
+//                        }
+//                    }
                     
-                    for (SRT::iterator i_p = s_reference.begin(); i_p != i; ++i_p) { // we thest if we have a smaller version of this
-                        
+                    rcount sub_count = 0;
+                    for (SRT::iterator i_p = s_reference.begin(); i_p != i+1; ++i_p) { // we thest if we have a smaller version of this
+
                         bool left_fit = true;
                         for (std::set<int>::iterator li = i_p->first.begin(); li != i_p->first.end(); ++li) {  // can ALL be found in the current left?
                             if (i->first.find(*li) == i->first.end()) {
@@ -6023,14 +6609,16 @@ bool base_manager::simplify_ambiguous_ILP(
                         if (!left_fit) {
                             continue;
                         }
-                        // pre <= current
-                        
-                        bool any_fit = false;
+
                         for (ISRT::iterator i2_p = i_p->second.begin(); i2_p != i_p->second.end(); ++i2_p) {
+
+                            if (i_p == i && i2_p >= i2) {
+                                continue;
+                            }
 
                             bool right_fit = true;
                             for (std::set<int>::iterator ri = i2_p->first.begin(); ri != i2_p->first.end(); ++ri) {
-                                
+
                                 if (i2->first.find(*ri) == i2->first.end()) {
                                     right_fit = false;
                                     break;
@@ -6039,41 +6627,38 @@ bool base_manager::simplify_ambiguous_ILP(
                             if (!right_fit) {
                                 continue;
                             }
-                            any_fit = true;
-                            break;
-                        }
-                        
-                        if (any_fit) {
-                            valid = false;
-                            break;
+                                sub_count += i2_p->second;
                         }
                     }
-                    
-                    for (std::set<int>::iterator li = i->first.begin(); li != i->first.end(); ++li) {       // which ones cannot be blocked!
-                        for (std::set<int>::iterator ri = i2->first.begin(); ri != i2->first.end(); ++ri) {
-                            if (evidences[*li].is_evidence(*ri)) {
-                                pre_left.insert(*li);
-                                pre_right.insert(*ri);
-                            }
-                        }
-                    }
-                    
-                    if (!valid) {
+
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("Sub Count " + std::to_string(sub_count) + "\n");
+                    #endif
+                    if (sub_count > 4) {
                         #ifdef ALLOW_DEBUG
-                        logger::Instance()->debug("invalid 2\n");
+                        logger::Instance()->debug("invalid\n");
                         #endif
                         continue;
                     }
-                    
+
                     for (std::set<int>::iterator it = i2->first.begin(); it!=i2->first.end(); ++it) {
                         all_found[*it] += i2->second; 
                         total_count += i2->second;
                     }
+
+                    right_raw_groups.insert(i2->first);   
+                    valid_hits[i->first][i2->first] = true;
                 }
-                
+
+                if (total_count == 0) {
+                        continue;
+                }
+
+                left_raw_groups.insert(i->first);
+
                 if (total_count > threshold) { // we have true evidence!
                     has_evidence = true;
-   
+
                     // collect block-list
                     path_evidence_set<int> block_set;
                     for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
@@ -6082,23 +6667,21 @@ bool base_manager::simplify_ambiguous_ILP(
                         } 
                         int id = g.id(a);
                         path_evidence_map<int, rcount>::iterator fi = all_found.find(id);
-                        if ( fi == all_found.end() && pre_right.find(id) == pre_right.end()) { //|| fi->second < total_count * 0.03) {
+                        if ( fi == all_found.end()  && pre_right.find(id) == pre_right.end()) {
                             block_set.insert(id);
                         }
-                    }
+                    }                                           
 
                     for (std::set<int>::iterator li = i->first.begin(); li != i->first.end(); ++li) {
-//                        if (!pre_right.empty() &&  pre_left.find(*li) == pre_left.end()) {
-//                            continue;
-//                        }
+
                         for (path_evidence_map<int, rcount>::iterator ri = all_found.begin(); ri != all_found.end(); ++ri) {
-                            evidences[*li].add_evidence(ri->first, ri->second);
+                            if (!evidences[*li].is_blocked(ri->first)) evidences[*li].add_evidence(ri->first, ri->second);
                             #ifdef ALLOW_DEBUG
                             logger::Instance()->debug("Add:  " + std::to_string(*li) + " " + std::to_string(ri->first) + "\n");
                             #endif
                         }
                         for (path_evidence_set<int>::iterator ri = block_set.begin(); ri != block_set.end(); ++ri) {
-                            evidences[*li].add_blocked(*ri);
+                             if (!evidences[*li].is_evidence(*ri)) evidences[*li].add_blocked(*ri);
                             #ifdef ALLOW_DEBUG
                             logger::Instance()->debug("Block:  " + std::to_string(*li) + " " + std::to_string(*ri) + "\n");
                             #endif
@@ -6106,11 +6689,15 @@ bool base_manager::simplify_ambiguous_ILP(
                     }
                 } else { 
                     for (std::set<int>::iterator li = i->first.begin(); li != i->first.end(); ++li) {
-//                        if (!pre_right.empty() &&  pre_left.find(*li) == pre_left.end()) {
-//                            continue;
-//                        }
                         for (path_evidence_map<int, rcount>::iterator ri = all_found.begin(); ri != all_found.end(); ++ri) {
+
                             evidences[*li].add_evidence(ri->first, ri->second);
+
+//                                step_count_left[*li].first += 1;
+//                                step_count_left[*li].second += ri->second;
+//                                step_count_right[ri->first].first += 1;
+//                                step_count_right[ri->first].second += ri->second;
+
                             #ifdef ALLOW_DEBUG
                             logger::Instance()->debug("Add Weak:  " + std::to_string(*li) + " " + std::to_string(ri->first) + "\n");
                             #endif
@@ -6118,6 +6705,7 @@ bool base_manager::simplify_ambiguous_ILP(
                     }   
                 }
             }
+//            }
             
             // +++++++++++++++++++++  Add in Info  +++++++++++++++++++++
             
@@ -6129,20 +6717,134 @@ bool base_manager::simplify_ambiguous_ILP(
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Add In evidences\n");
             #endif
+//
+//            path_evidence_map<int, rcount> count_left;
+//            path_evidence_map<int, rcount> count_right;
+//            for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+//                int pp = g.id(a);
+//                for (path_evidence_map<int, rcount>::iterator ei = evidences[pp].begin(); ei!= evidences[pp].end(); ++ei) {
+//                    if (!evidences[pp].is_blocked(ei->first)) {
+//                        count_left[pp] += ei->second;
+//                        count_right[ei->first] += ei->second;
+//                    }
+//                }
+//            }
+//            
+            
             for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
                 int pp = g.id(a);
                 for (path_evidence_map<int, rcount>::iterator ei = evidences[pp].begin(); ei!= evidences[pp].end(); ++ei) {
-                    if (!evidences[pp].is_blocked(ei->first)) {
+                    if (!evidences[pp].is_blocked(ei->first) ) {//&& (ei->second * 100 / count_left[pp] >= 5 || ei->second * 100 / count_right[ei->first] >= 5) ) {
                         temp_know_paths[g.arcFromId(pp)][ei->first] = ei->second;
                         temp_know_back_paths[g.arcFromId(ei->first)].bridges->insert(pp);
                         
-                        block_delete_weak[n].insert(pp);
-                        block_delete_weak[n].insert(ei->first);
+                        block_delete[n].insert(pp);
+                        block_delete[n].insert(ei->first);
                     }
                 }
             }
-            
+                 
             unsecurityId[n].resolvable = has_evidence;
+            
+            // we compute the groups first 
+            std::deque<std::set<int> > left_groups;
+            std::deque<std::set<int> > right_groups;
+            compute_edge_groups(left_raw_groups, left_groups);
+            compute_edge_groups(right_raw_groups, right_groups);
+            
+            for (std::deque<std::set<int> >::iterator lgi = left_groups.begin(); lgi != left_groups.end(); ++lgi) {
+                std::set<int>::iterator s = lgi->begin();
+                std::set<int>::iterator s2 = s;
+                int max = *s;
+                float max_score = means[g.arcFromId(*s)].compute_score();
+                ++s;
+                for(; s != lgi->end(); ++s) {
+                    float score = means[g.arcFromId(*s)].compute_score();
+                    if (score > max_score) {
+                        max_score = score;
+                        max = *s;
+                    }
+                }
+//                for(; s2 != lgi->end(); ++s2) {
+//                    float score = means[g.arcFromId(*s2)].compute_score();
+//                    if ( max_score * 0.5 <= score && block_delete[n].find(*s2) != block_delete[n].end()) block_delete_high_res[n].insert(*s2);
+//                }
+                if (block_delete[n].find(max) != block_delete[n].end()) block_delete_high_res[n].insert(max);
+            }
+            
+            for (std::deque<std::set<int> >::iterator lgi = right_groups.begin(); lgi != right_groups.end(); ++lgi) {
+                std::set<int>::iterator s = lgi->begin();
+                std::set<int>::iterator s2 = s;
+                int max = *s;
+                float max_score = means[g.arcFromId(*s)].compute_score();
+                ++s;
+                for(; s != lgi->end(); ++s) {
+                    float score = means[g.arcFromId(*s)].compute_score();
+                    if (score > max_score) {
+                        max_score = score;
+                        max = *s;
+                    }
+                }
+//                for(; s2 != lgi->end(); ++s2) {
+//                    float score = means[g.arcFromId(*s2)].compute_score();
+//                    if ( max_score * 0.5 <= score && block_delete[n].find(*s2) != block_delete[n].end()) block_delete_high_res[n].insert(*s2);
+//                }
+                if (block_delete[n].find(max) != block_delete[n].end()) block_delete_high_res[n].insert(max);
+            }
+            
+            int id_iterator = 0;
+            for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+                left_groups_ids[n][g.id(a)] = evidence_group(id_iterator, false);
+                ++id_iterator;
+            }
+            for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
+                right_groups_ids[n][g.id(a)] = evidence_group(id_iterator, false);
+                ++id_iterator;
+            }
+            
+            // we will not resolve those in big groups
+            if (left_groups.size() == 1) {
+                left_groups.clear();
+            }
+            for (std::deque<std::set<int> >::iterator lgi = left_groups.begin(); lgi != left_groups.end(); ) {
+                if (lgi->size() == 1) {
+                    lgi = left_groups.erase(lgi);
+                } else {
+                    for(std::set<int>::iterator s = lgi->begin(); s != lgi->end(); ++s) {
+                        left_groups_ids[n][*s] = evidence_group(id_iterator, true);
+//                        for(std::set<int>::iterator s2 = lgi->begin(); s2 != lgi->end(); ++s2) {
+//                            for (arc_bridge::iterator ab = temp_know_paths[g.arcFromId(*s)].begin(); ab != temp_know_paths[g.arcFromId(*s)].end(); ++ab) {
+//                                 temp_know_back_paths[g.arcFromId(ab->first)].bridges->insert(*s2);
+//                                 temp_know_paths[g.arcFromId(*s2)][ab->first] += 1;
+//                            }
+//                        }
+                        //if (block_delete[n].find(*s) != block_delete[n].end()) block_delete_high_res[n].insert(*s);
+                    }
+                    ++id_iterator;
+                    ++lgi;
+                }
+            }
+            if (right_groups.size() == 1) {
+                right_groups.clear();
+            }
+            for (std::deque<std::set<int> >::iterator rgi = right_groups.begin(); rgi != right_groups.end(); ) {
+                if (rgi->size() == 1) {
+                    rgi = right_groups.erase(rgi);
+                } else {
+                    for(std::set<int>::iterator s = rgi->begin(); s != rgi->end(); ++s) {
+                        right_groups_ids[n][*s] = evidence_group(id_iterator, true);
+//                        for(std::set<int>::iterator s2 = rgi->begin(); s2 != rgi->end(); ++s2) {
+//                            for (arc_back_bridge::iterator ab = temp_know_back_paths[g.arcFromId(*s)].begin(); ab != temp_know_back_paths[g.arcFromId(*s)].end(); ++ab) {
+//                                 temp_know_back_paths[g.arcFromId(*s2)].bridges->insert(*ab);
+//                                 temp_know_paths[g.arcFromId(*ab)][*s2] += 1;
+//                            }
+//                        }
+                        //if (block_delete[n].find(*s) != block_delete[n].end()) block_delete_high_res[n].insert(*s);
+                    }
+                    ++id_iterator;
+                    ++rgi;
+                }
+            }
             
             // identify the components
             for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
@@ -6165,46 +6867,33 @@ bool base_manager::simplify_ambiguous_ILP(
                 }
             }
             // now set up the right numbers!
-            for (std::deque<component >::iterator ci = classify[n].components.begin(); ci !=  classify[n].components.end(); ++ci) {
+            for (std::deque<component >::iterator ci = classify[n].components.begin(); ci !=  classify[n].components.end(); ) {
                         
                 if (ci->nodes.size() == 1) {
 //                     #ifdef ALLOW_DEBUG
 //                    logger::Instance()->debug("CI Single"+ std::to_string(g.id(n)) + " as " + std::to_string(*ci->nodes.begin())+"\n");
 //                    #endif
+                    ci = classify[n].components.erase(ci);
                     continue;
                 }
                 
                 unsigned int in = 0;
                 unsigned int out = 0;
                 unsigned int edges = 0;
-                bool only_single = true;
-                for ( std::set<int>::iterator it = ci->nodes.begin(); it != ci->nodes.end(); ++it) {
-                                        
+                for ( std::set<int>::iterator it = ci->nodes.begin(); it != ci->nodes.end(); ++it) {                   
                     ListDigraph::Arc a = g.arcFromId(*it);
                     if (g.target(a) == node ) {
                         ++in;
                         edges += temp_know_paths[a].size();
-                        
-                        for (arc_bridge::iterator ab = temp_know_paths[a].begin(); ab != temp_know_paths[a].end() && only_single; ++ab) {
-                            if (!single_evidences[*it].is_evidence(ab->first)) {
-                                only_single = false;
-                            }
-                        }
                     } else {
                         ++out;
                         edges += temp_know_back_paths[a].size();
-                        for (arc_back_bridge::iterator ab = temp_know_back_paths[a].begin(); ab != temp_know_back_paths[a].end() && only_single; ++ab) {
-                            if (!single_evidences[*it].is_evidence(*ab)) {
-                                only_single = false;
-                            }
-                        }
                     }
                 }
 
                 ci->in_nodes = in;
                 ci->out_nodes = out;
                 ci->edges = edges;
-                ci->only_single = only_single;
                 
                 classify[n].assigned_in += in;
                 classify[n].assigned_out += out;
@@ -6219,7 +6908,7 @@ bool base_manager::simplify_ambiguous_ILP(
                     // do remove?
                     bool kill_this = true;
                     for ( std::set<int>::iterator it = ci->nodes.begin(); it != ci->nodes.end(); ++it) { 
-                        if (block_delete[n].find(*it) != block_delete[n].end()) {
+                        if (single_to_single[n].find(*it) != single_to_single[n].end()) {
                             kill_this = false;
                             break;
                         }
@@ -6234,7 +6923,8 @@ bool base_manager::simplify_ambiguous_ILP(
                             } else {
                                temp_know_back_paths[a].clear();
                             }
-                            block_delete_weak[n].erase(*it);
+                            block_delete_high_res[n].erase(*it);
+                            block_delete[n].erase(*it);
                         }     
                         // rewind
                         classify[n].assigned_in -= in;
@@ -6259,18 +6949,168 @@ bool base_manager::simplify_ambiguous_ILP(
                         continue;
                     }
                     for (std::map<std::set<int>,  rcount >::iterator i2 = i1->second.begin(); i2 != i1->second.end(); ++i2) {
+                        
+                        if (!valid_hits[i1->first][i2->first]) {
+                            continue;
+                        }
+                        
                         ci->fragments.push_back(resolve_count_set());
                         ci->fragments.back().left = i1->first;
                         ci->fragments.back().right = i2->first;
                         ci->fragments.back().count = i2->second;
                     }
                 }
- 
+                
+                ++ci;
             }
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("CLASSIFY SET On "+ std::to_string(g.id(n)) + " with " + std::to_string(pre_size)  + "-" + std::to_string(classify[n].assigned_in) + "  " + std::to_string(post_size)+ "-" + std::to_string(classify[n].assigned_out)+"\n");
+            #endif
             
             classify[n].unassigned_in = pre_size - classify[n].assigned_in;
             classify[n].unassigned_out = post_size - classify[n].assigned_out;   
-              
+         
+            if (classify[n].components.size() == 1) {
+                
+                std::deque<component >::iterator ci = classify[n].components.begin();
+                if (classify[n].unassigned_in == 0) {
+                    // join out to max in!
+                    capacity_type max = 0;
+                    ListDigraph::Arc marc;
+                    for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+                        if (ci->nodes.find(g.id(a)) != ci->nodes.end()) {
+                            if (flow[a] > max) {
+                                max = flow[a];
+                                marc = a;
+                            }
+                        }
+                    }
+                    for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
+                        if (ci->nodes.find(g.id(a)) == ci->nodes.end() && !barred[a]) {
+
+                            temp_know_paths_add_max[marc][g.id(a)] += 1;
+                            temp_know_back_paths_add_max[a].bridges->insert(g.id(marc));
+                            ci->fragments.push_back(resolve_count_set());
+                            ci->fragments.back().left.insert(g.id(marc));
+                            ci->fragments.back().right.insert(g.id(a));
+                            ci->fragments.back().count = 1;
+                            ci->nodes.insert(g.id(a));
+                        }
+                    }
+                } else if (classify[n].unassigned_out == 0) {
+                     // join in to max out!
+                    capacity_type max = 0;
+                    ListDigraph::Arc marc;
+                    for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
+                        if (ci->nodes.find(g.id(a)) != ci->nodes.end()) {
+                            if (flow[a] > max) {
+                                max = flow[a];
+                                marc = a;
+                            }
+                        }
+                    }
+                    for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+                        if (ci->nodes.find(g.id(a)) == ci->nodes.end() && !barred[a]) {
+
+                            temp_know_paths_add_max[a][g.id(marc)] += 1;
+                            temp_know_back_paths_add_max[marc].bridges->insert(g.id(a));
+                            ci->fragments.push_back(resolve_count_set());
+                            ci->fragments.back().left.insert(g.id(a));
+                            ci->fragments.back().right.insert(g.id(marc));
+                            ci->fragments.back().count = 1;
+                            ci->nodes.insert(g.id(a));
+                        }
+                    }
+                }
+            }
+
+            
+            unsigned int edges_in_groups = 0;
+            unsigned int nodes_offset = 0;
+            std::set<int> lgs;
+            std::set<int> rgs;
+            std::set<std::pair<int, int> > combinations;
+            for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+                ListDigraph::Arc l = a;
+                for (arc_bridge::iterator bi = know_paths[l].begin(); bi != know_paths[l].end(); ++bi) {
+                    ListDigraph::Arc r = g.arcFromId(bi->first);
+
+                    // get the original group combos!
+                    int i1 = 0;
+                    for ( ;i1 < left_groups.size(); ++i1) {
+                        if(left_groups[i1].find(g.id(l)) != left_groups[i1].end()) {
+                            lgs.insert(i1);
+                            break;
+                        }
+                    }
+                    int i2 = 0;
+                    for ( ;i2 < right_groups.size(); ++i2) {
+                        if(right_groups[i2].find(g.id(r)) != right_groups[i2].end()) {
+                            rgs.insert(i2);
+                            break;
+                        }
+                    }
+                    
+                    if (i1 != left_groups.size() || i2 != right_groups.size()) {    
+                        ++edges_in_groups;
+                    }
+                    
+                    if (i1 != left_groups.size() && i2 != right_groups.size()) {
+                        combinations.insert(std::make_pair(i1, i2));
+                    } else if (i1 == left_groups.size() && i2 != right_groups.size()) {
+                        combinations.insert(std::make_pair(i1 + g.id(l), i2));
+                    } else if (i1 != left_groups.size() && i2 == right_groups.size()) {
+                        combinations.insert(std::make_pair(i1, i2 + g.id(r)));
+                    }
+                    
+                }
+            }
+            for ( std::set<int>::iterator ig = lgs.begin(); ig != lgs.end(); ++ig) {
+                nodes_offset += left_groups[*ig].size() - 1;
+            }
+            for ( std::set<int>::iterator ig = rgs.begin(); ig != rgs.end(); ++ig) {
+                nodes_offset += right_groups[*ig].size() - 1;
+            }
+            
+            classify[n].edge_group_offset = edges_in_groups - combinations.size();
+            classify[n].node_group_offset = nodes_offset;
+            
+//                         save the maximal member of each group!
+//            for(std::set<std::set<int> >::iterator group = left_raw_groups.begin(); group != left_raw_groups.end(); ++group) {
+//                float max = 0;
+//                ListDigraph::Arc arc; 
+//                
+//                for (std::set<int>::iterator gi = group->begin(); gi != group->end(); ++gi) {    
+//                    ListDigraph::Arc a = g.arcFromId(*gi);
+//                    
+//                    float score = means[a].compute_score();
+//                    if (score > max) {
+//                        max = score;
+//                        arc = a;
+//                    }
+//                }
+//                
+//                if (block_delete[n].find(g.id(arc)) != block_delete[n].end()) block_delete_high_res[n].insert(g.id(arc));
+//            }
+//                    
+//            for(std::set<std::set<int> >::iterator group = right_raw_groups.begin(); group != right_raw_groups.end(); ++group) {
+//                float max = 0;
+//                ListDigraph::Arc arc; 
+//                
+//                for (std::set<int>::iterator gi = group->begin(); gi != group->end(); ++gi) {    
+//                    ListDigraph::Arc a = g.arcFromId(*gi);
+//                    
+//                    float score = means[a].compute_score();
+//                    if (score > max) {
+//                        max = score;
+//                        arc = a;
+//                    }
+//                }
+//                
+//                if (block_delete[n].find(g.id(arc)) != block_delete[n].end()) block_delete_high_res[n].insert(g.id(arc));
+//            }
+            
         }
     }
     
@@ -6287,39 +7127,79 @@ bool base_manager::simplify_ambiguous_ILP(
                 .arcMap("barred", barred)
                 .run();  
 
+//    logger::Instance()->debug("Has Block Mark \n");
+//    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+//        logger::Instance()->debug("Arc " + std::to_string(g.id(a)) + "\n"); 
+//        bool barred = false;
+//        for(std::set<transcript_unsecurity>::iterator u_it = unsecurityArc[a]->begin(); u_it != unsecurityArc[a]->end() ; ++u_it) {
+//
+//            logger::Instance()->debug(std::to_string(u_it->id) + "-" + std::to_string(u_it->evidenced) + ", " );
+//        }
+//        logger::Instance()->debug("\n"); 
+//    }
+//    logger::Instance()->debug("Nodes \n");
+//    for (ListDigraph::NodeIt n(g); n != INVALID; ++n) {
+//        logger::Instance()->debug("Node " + std::to_string(g.id(n)) + " : " + std::to_string(unsecurityId[n].id) + "\n"); 
+//    }
+
     logger::Instance()->debug("Classify done \n");
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
        logger::Instance()->debug("Arc " + std::to_string(g.id(a))); 
        for (arc_bridge::iterator ab = temp_know_paths[a].begin(); ab != temp_know_paths[a].end(); ++ab) {
            logger::Instance()->debug(" f " + std::to_string(ab->first)); 
        }
+       for (arc_bridge::iterator ab = temp_know_paths_add_max[a].begin(); ab != temp_know_paths_add_max[a].end(); ++ab) {
+           logger::Instance()->debug(" fm " + std::to_string(ab->first)); 
+       }
        for (arc_back_bridge::iterator ab = temp_know_back_paths[a].begin(); ab != temp_know_back_paths[a].end(); ++ab) {
            logger::Instance()->debug(" b " + std::to_string(*ab)); 
+       }
+       for (arc_back_bridge::iterator ab = temp_know_back_paths_add_max[a].begin(); ab != temp_know_back_paths_add_max[a].end(); ++ab) {
+           logger::Instance()->debug(" bm " + std::to_string(*ab)); 
        }
        logger::Instance()->debug("\n" );  
     }
     
+//    logger::Instance()->debug("-------\n" ); 
+//    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+//       logger::Instance()->debug("Arc " + std::to_string(g.id(a))); 
+//       for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
+//           logger::Instance()->debug(" cf " + std::to_string(ab->first)); 
+//       }
+//       for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
+//           logger::Instance()->debug(" cb " + std::to_string(*ab)); 
+//       }
+//       logger::Instance()->debug("\n" );  
+//    }
+    
     for (ListDigraph::NodeIt n(g); n != INVALID;++n) {
         logger::Instance()->debug("For n " + std::to_string(g.id(n)) +": \n");
         logger::Instance()->debug("Left Groups\n");
-        for (std::deque<std::set<int> >::iterator i = left_groups[n].begin(); i != left_groups[n].end() ; ++i) {
-            logger::Instance()->debug("G ");
-            for (std::set<int>::iterator g = i->begin(); g!= i->end(); ++g) {
-                logger::Instance()->debug(std::to_string(*g) + ", ");
-            }
-            logger::Instance()->debug("\n");
+        for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+            logger::Instance()->debug("Arc " + std::to_string(g.id(a)) + " G " + std::to_string(left_groups_ids[n][g.id(a)].id)  + "\n"); 
         }
         logger::Instance()->debug("Right Groups\n");
-        for (std::deque<std::set<int> >::iterator i = right_groups[n].begin(); i != right_groups[n].end() ; ++i) {
-            logger::Instance()->debug("G ");
-            for (std::set<int>::iterator g = i->begin(); g!= i->end(); ++g) {
-                logger::Instance()->debug(std::to_string(*g) + ", ");
-            }
-            logger::Instance()->debug("\n");
+        for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
+            logger::Instance()->debug("Arc " + std::to_string(g.id(a)) + " G " + std::to_string(right_groups_ids[n][g.id(a)].id)  + "\n"); 
         }
     }
     #endif
 
+    
+//    std::unordered_set<int> delete_block;
+//    for (ListDigraph::ArcIt a(g); a != INVALID;++a) {  
+//        
+//        ListDigraph::Node ns = g.source(a);
+//        ListDigraph::Node nt = g.target(a);
+//        
+//        bool lblock = block_delete_high_res[ns].find(g.id(a)) !=  block_delete_high_res[ns].end();
+//        bool rblock = block_delete_high_res[nt].find(g.id(a)) !=  block_delete_high_res[nt].end();
+//       
+//        if ( rblock || lblock ) {
+//            delete_block.insert(g.id(a));
+//        }
+//    }
+    
     
     std::deque<ListDigraph::Node> top_order;
 
@@ -6341,8 +7221,8 @@ bool base_manager::simplify_ambiguous_ILP(
     std::sort(ratio_order.begin(), ratio_order.end(), [](const std::pair<ListDigraph::Node, float> &a1, const std::pair<ListDigraph::Node, float> &a2){return a1.second < a2.second;});
     
     
-    const float low_barr_ratio = 0.33;
-    
+    const float low_barr_ratio = 0.40;
+        
     // we have a perfect match
     for (std::deque<std::pair<ListDigraph::Node, float> >::iterator tn = ratio_order.begin(); tn != ratio_order.end(); ++tn) {
         ListDigraph::Node n(tn->first);
@@ -6360,20 +7240,22 @@ bool base_manager::simplify_ambiguous_ILP(
         logger::Instance()->debug("Testing "+ std::to_string(g.id(n)) + " un " + std::to_string(classify[n].unassigned_in)+"-"+std::to_string(classify[n].unassigned_out) + " as " + std::to_string(classify[n].assigned_in)+"-"+std::to_string(classify[n].assigned_out) + " " + std::to_string(classify[n].assigned_edges) +"\n");
         #endif
         
-        if (classify[n].unassigned_in == 0 && classify[n].unassigned_out == 0 && classify[n].assigned_edges / 2 == max) {
+        if (classify[n].unassigned_in == 0 && classify[n].unassigned_out == 0 && classify[n].assigned_edges / 2 == max && classify[n].components.size() == 1) {
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Option A "+ std::to_string(g.id(n)) +"\n");
             #endif
             //this is perfectly resolved! use ALL
             insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
+            add_local_known(n, g, temp_know_paths_add_max, temp_know_back_paths_add_max, know_paths, know_back_paths);
+
             capacity_type max = 0;
             for ( std::deque<component>::iterator ci = classify[n].components.begin(); ci != classify[n].components.end(); ++ci) {
-                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths,  ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths, left_groups_ids[n], right_groups_ids[n], barred, ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, node_index, meta->size);
                 if (count > max) {
                     max = count;
                 }
             }
-            clean_ILP_leftovers(n, know_paths, know_back_paths,  barred, max * low_barr_ratio, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+            clean_ILP_leftovers(n, know_paths, know_back_paths, barred, max * low_barr_ratio, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
             return true;
         }  
     }
@@ -6386,16 +7268,21 @@ bool base_manager::simplify_ambiguous_ILP(
             continue;
         }
         
-        if (classify[n].assigned_edges / 2 + 2 <= 1 + classify[n].assigned_in + classify[n].assigned_out
-                && classify[n].unassigned_in + classify[n].unassigned_out + classify[n].components.size() == 1) {
+        unsigned int edge_count = classify[n].assigned_edges / 2 - classify[n].edge_group_offset;
+        unsigned int nodes = classify[n].assigned_in + classify[n].assigned_out - classify[n].node_group_offset;
+        
+        if (edge_count + 2 <= 1 + nodes
+                && classify[n].unassigned_in == 0 && classify[n].unassigned_out == 0 && classify[n].components.size() <= 2) {
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Option B "+ std::to_string(g.id(n)) +"\n");
             #endif
             // one component and easy degree, also use ILP!
             insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
+            add_local_known(n, g, temp_know_paths_add_max, temp_know_back_paths_add_max, know_paths, know_back_paths);
+            
             capacity_type max = 0;
             for ( std::deque<component>::iterator ci = classify[n].components.begin(); ci != classify[n].components.end(); ++ci) {
-                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths,  ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths, left_groups_ids[n], right_groups_ids[n], barred, ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, node_index, meta->size);
                 if (count > max) {
                     max = count;
                 }
@@ -6405,7 +7292,7 @@ bool base_manager::simplify_ambiguous_ILP(
         }
         
     }
-        
+      
     if (!final_resolve) {
         bool barr_edge = false;
         ListDigraph::Node node;
@@ -6414,13 +7301,22 @@ bool base_manager::simplify_ambiguous_ILP(
         for (std::deque<ListDigraph::Node>::iterator tn = top_order.begin(); tn != top_order.end(); ++tn) {
             ListDigraph::Node n(*tn);
             
+            
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("CHECK BARR NODE"+ std::to_string(g.id(n)) +"\n");
+                #endif
+            
             if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
                 continue;
             }
             
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("IN "+ std::to_string(g.id(n)) +"\n");
+            #endif
+                
             ListDigraph::Arc nbarc;
             float ndr = 0;
-            if (bar_smallest_edge(n, g, flow, means, barred, 0.33, nbarc, ndr, block_delete_weak[n])) {
+            if (bar_smallest_edge(n, g, flow, means, barred, 0.33, nbarc, ndr, block_delete_high_res[n])) {
                 #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("Report "+ std::to_string(g.id(nbarc)) + " " + std::to_string(ndr) +"\n");
                 #endif
@@ -6452,106 +7348,14 @@ bool base_manager::simplify_ambiguous_ILP(
                 return true;
         }
     }
-    
-    // include near perfect multi component matches
-    for (std::deque<std::pair<ListDigraph::Node, float> >::iterator tn = ratio_order.begin(); tn != ratio_order.end(); ++tn) {
-        ListDigraph::Node n(tn->first);
-        
-        if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
-            continue;
-        }
-        
-        unsigned int components = classify[n].unassigned_in + classify[n].unassigned_out + classify[n].components.size();
-        
-        if (classify[n].assigned_edges / 2 + 2 * components <= 1 + classify[n].assigned_in + classify[n].unassigned_in + classify[n].assigned_out + classify[n].unassigned_out
-            && components > 1) {
-            // multi component and easy degree, also use ILP!
-            #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Option D "+ std::to_string(g.id(n)) +"\n");
-            #endif                
-            insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
-             capacity_type max = 0;
-            for ( std::deque<component>::iterator ci = classify[n].components.begin(); ci != classify[n].components.end(); ++ci) {
-                if (ci->in_nodes * ci->out_nodes == ci->edges / 2 && ci->in_nodes > 1 && ci->out_nodes > 1) {
-                    // ignore fully connected ones!
-                    continue;
-                }
-                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths,  ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-                if (count > max) {
-                    max = count;
-                }
-            }
-            clean_ILP_leftovers(n, know_paths, know_back_paths,  barred, max * low_barr_ratio, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-            return true;
-        }
-    }
-    
-//    // include near perfect multi component matches
-//    for (ListDigraph::NodeIt n(g); n != INVALID;++n) {
-//        
-//        if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
-//            continue;
-//        }
-//        
-//        for ( std::deque<component>::iterator ci = classify[n].components.begin(); ci != classify[n].components.end(); ++ci) {
-//            if (ci->only_single) {
-//                // multi component and easy degree, also use ILP!
-//                #ifdef ALLOW_DEBUG
-//                logger::Instance()->debug("Option PF "+ std::to_string(g.id(n)) +"\n");
-//                #endif                
-//                insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
-//                
-//                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths,  ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-//                clean_barred_leftovers(n, know_paths, know_back_paths, barred, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-//                return true;
-//            }
-//        } 
-//    }
-    
-        // clean up bad multi unique
-    for (std::deque<std::pair<ListDigraph::Node, float> >::iterator tn = ratio_order.begin(); tn != ratio_order.end(); ++tn) {
-        ListDigraph::Node n(tn->first);
-        
-        if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
-            continue;
-        }
-        
-        if (classify[n].assigned_in > classify[n].fully_connected_in && classify[n].assigned_out > classify[n].fully_connected_out && classify[n].assigned_edges > classify[n].fully_connected_edges ) {
-            
-            bool has_loose_ends = false;
-            for (ListDigraph::InArcIt a(g, n); a!=INVALID && !has_loose_ends; ++a) {
-                if (temp_know_paths[a].size() == 1) {
-                    has_loose_ends = true;
-                }
-            }
-            for (ListDigraph::OutArcIt a(g, n); a!=INVALID && !has_loose_ends; ++a) {
-                if (temp_know_back_paths[a].size() == 1) {
-                    has_loose_ends = true;
-                }
-            }
-            if (has_loose_ends) {
-                #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("Option F "+ std::to_string(g.id(n)) +"\n");
-                #endif
-                insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
-                
-                unravel_evidences(n, know_paths, know_back_paths, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, NULL);
-
-//                unravel_single(n, know_paths, know_back_paths, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-                clean_barred_leftovers(n, know_paths, know_back_paths, barred, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-
-                return true;
-            }
-        }
-    }
-    
+             
     if (!final_resolve) {
         bool barr_edge = false;
         ListDigraph::Node node;
         ListDigraph::Arc barc;
         float dr = 0;
         for (std::deque<ListDigraph::Node>::iterator tn = top_order.begin(); tn != top_order.end(); ++tn) {
-            ListDigraph::Node n(*tn);   
+            ListDigraph::Node n(*tn);
             
             if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
                 continue;
@@ -6559,30 +7363,15 @@ bool base_manager::simplify_ambiguous_ILP(
             
             ListDigraph::Arc nbarc;
             float ndr = 0;
-            for (std::deque<std::set<int> >::iterator i = left_groups[n].begin(); i != left_groups[n].end() ; ++i) {
-                if (bar_smallest_edge_by_group(g, flow, means, *i, 0.66, nbarc, ndr)) {
-                    #ifdef ALLOW_DEBUG
-                    logger::Instance()->debug("Report L "+ std::to_string(g.id(nbarc)) + " " + std::to_string(ndr) +"\n");
-                    #endif
-                    if ( (ndr < dr || !barr_edge) ) {
-                        dr = ndr;
-                        barc = nbarc;
-                        barr_edge = true;
-                        node = n;
-                    }
-                }
-            }
-            for (std::deque<std::set<int> >::iterator i = right_groups[n].begin(); i != right_groups[n].end() ; ++i) {
-                if (bar_smallest_edge_by_group(g, flow, means, *i, 0.66, nbarc, ndr)) {
-                    #ifdef ALLOW_DEBUG
-                    logger::Instance()->debug("Report R "+ std::to_string(g.id(nbarc)) + " " + std::to_string(ndr) +"\n");
-                    #endif
-                    if ( (ndr < dr || !barr_edge) ) {
-                        dr = ndr;
-                        barc = nbarc;
-                        barr_edge = true;
-                        node = n;
-                    }
+            if (bar_negligible_edge(n, g, flow, means, barred, 0.05, nbarc, ndr, block_delete_high_res[n])) {
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Report "+ std::to_string(g.id(nbarc)) + " " + std::to_string(ndr) +"\n");
+                #endif
+                if ( (ndr < dr || !barr_edge) ) {
+                    dr = ndr;
+                    barc = nbarc;
+                    barr_edge = true;
+                    node = n;
                 }
             }
         }
@@ -6595,7 +7384,7 @@ bool base_manager::simplify_ambiguous_ILP(
                 }
                 
                 #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("Option C.2 "+ std::to_string(g.id(node)) + " Arc " + std::to_string(g.id(barc)) +"\n");
+                logger::Instance()->debug("Option N.1 "+ std::to_string(g.id(node)) + " Arc " + std::to_string(g.id(barc)) +"\n");
                 #endif
                 barred[barc] = true;
                 unsecurityArc[barc]->insert( transcript_unsecurity( 0, transcript_unsecurity::BARRED));
@@ -6607,6 +7396,107 @@ bool base_manager::simplify_ambiguous_ILP(
         }
     }
     
+    
+        // include near perfect multi component matches
+    for (std::deque<std::pair<ListDigraph::Node, float> >::iterator tn = ratio_order.begin(); tn != ratio_order.end(); ++tn) {
+        ListDigraph::Node n(tn->first);
+        
+        if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
+            continue;
+        }
+        
+        unsigned int components = classify[n].unassigned_in + classify[n].unassigned_out + classify[n].components.size();
+        
+        unsigned int edge_count = classify[n].assigned_edges / 2 - classify[n].edge_group_offset;
+        unsigned int nodes = classify[n].assigned_in + classify[n].assigned_out - classify[n].node_group_offset;
+
+        if (edge_count + 2 * components <= 3 + classify[n].unassigned_in + classify[n].unassigned_out + nodes
+            && components > 1 && classify[n].assigned_edges > 0) {
+            // multi component and easy degree, also use ILP!
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Option D "+ std::to_string(g.id(n)) +"\n");
+            #endif
+            insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
+            add_local_known(n, g, temp_know_paths_add_max, temp_know_back_paths_add_max, know_paths, know_back_paths);
+            
+            capacity_type max = 0;
+            for ( std::deque<component>::iterator ci = classify[n].components.begin(); ci != classify[n].components.end(); ++ci) {
+                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths, left_groups_ids[n], right_groups_ids[n], barred, ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, node_index, meta->size);
+                if (count > max) {
+                    max = count;
+                }
+            }
+            clean_ILP_leftovers(n, know_paths, know_back_paths,  barred, max * low_barr_ratio, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+            return true;
+        }
+    }
+
+        // clean up bad multi unique
+    for (std::deque<std::pair<ListDigraph::Node, float> >::iterator tn = ratio_order.begin(); tn != ratio_order.end(); ++tn) {
+        ListDigraph::Node n(tn->first);
+        
+        if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
+            continue;
+        }
+        
+        if (classify[n].assigned_in > classify[n].fully_connected_in && classify[n].assigned_out > classify[n].fully_connected_out && classify[n].assigned_edges > classify[n].fully_connected_edges ) {
+            
+            bool has_loose_ends = false;
+            
+            std::set<int> in_groups, out_groups;
+            std::map<int, std::set<int> > rev_in_groups;
+            std::map<int, std::set<int> > rev_out_groups;
+            for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
+                if (edge_type[a] == edge_types::HELPER) continue;
+                int id = g.id(a);
+                in_groups.insert(left_groups_ids[n][id].id);
+                rev_in_groups[left_groups_ids[n][id].id].insert(id);
+            }
+            for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
+                if (edge_type[a] == edge_types::HELPER) continue;
+                int id = g.id(a);
+                out_groups.insert(right_groups_ids[n][id].id);
+                rev_out_groups[right_groups_ids[n][id].id].insert(id);
+            }
+            for (std::set<int>::iterator si = in_groups.begin(); si != in_groups.end() && !has_loose_ends; ++si) {
+                std::set<int> kg;
+                for (std::set<int>::iterator fi = rev_in_groups[*si].begin(); fi != rev_in_groups[*si].end(); ++fi) {
+                    for (arc_bridge::iterator bi = know_paths[g.arcFromId(*fi)].begin(); bi != know_paths[g.arcFromId(*fi)].end(); ++bi) {
+                        kg.insert(right_groups_ids[n][bi->first].id);
+                    }
+                }
+                if (kg.size() == 1) {
+                    has_loose_ends = true;
+                }
+            }
+            for (std::set<int>::iterator si = out_groups.begin(); si != out_groups.end() && !has_loose_ends; ++si) {
+                std::set<int> kg;
+                for (std::set<int>::iterator fi = rev_out_groups[*si].begin(); fi != rev_out_groups[*si].end(); ++fi) {
+                    for (arc_back_bridge::iterator bi = know_back_paths[g.arcFromId(*fi)].begin(); bi != know_back_paths[g.arcFromId(*fi)].end(); ++bi) {
+                        kg.insert(left_groups_ids[n][*bi].id);
+                    }
+                }
+                if (kg.size() == 1) {
+                    has_loose_ends = true;
+                }
+            }
+            
+            if (has_loose_ends) {
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Option F "+ std::to_string(g.id(n)) +"\n");
+                #endif
+                insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
+                
+                unravel_evidences_groups(n, know_paths, know_back_paths, left_groups_ids[n], right_groups_ids[n], barred, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, node_index, meta->size);
+
+//                unravel_single(n, know_paths, know_back_paths, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+                clean_barred_leftovers(n, know_paths, know_back_paths, barred, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+
+                return true;
+            }
+        }
+    }
+        
     // we have a match although bad
     for (std::deque<std::pair<ListDigraph::Node, float> >::iterator tn = ratio_order.begin(); tn != ratio_order.end(); ++tn) {
         ListDigraph::Node n(tn->first);
@@ -6625,48 +7515,20 @@ bool base_manager::simplify_ambiguous_ILP(
             #endif
             // one component and easy degree, also use ILP!
             insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
+            add_local_known(n, g, temp_know_paths_add_max, temp_know_back_paths_add_max, know_paths, know_back_paths);
+            
             capacity_type max = 0;
             for ( std::deque<component>::iterator ci = classify[n].components.begin(); ci != classify[n].components.end(); ++ci) {
-                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths,  ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+                capacity_type count = unravel_evidences_ILP(n, know_paths, know_back_paths, left_groups_ids[n], right_groups_ids[n], barred, ci->fragments, ci->nodes, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, node_index, meta->size);
                 if (count > max) {
                     max = count;
                 }
             }
-            clean_ILP_leftovers(n, know_paths, know_back_paths,  barred, max * low_barr_ratio, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+            clean_ILP_leftovers(n, know_paths, know_back_paths, barred, max * low_barr_ratio, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
             return true;
         }
     }
-    
-//            // clean up bad multi unique
-//    for (ListDigraph::NodeIt n(g); n != INVALID;++n) {
-//        
-//        if ( classify[n].unassigned_in + classify[n].assigned_in < 2 || classify[n].unassigned_out + classify[n].assigned_out < 2 ) {
-//            continue;
-//        }
-//        
-//        if (classify[n].assigned_in > classify[n].fully_connected_in && classify[n].assigned_out > classify[n].fully_connected_out && classify[n].assigned_edges > classify[n].fully_connected_edges ) {
-//            
-//            bool has_loose_ends = false;
-//            for (ListDigraph::InArcIt a(g, n); a!=INVALID && !has_loose_ends; ++a) {
-//                if (temp_know_paths[a].size() > 0) {
-//                    has_loose_ends = true;
-//                }
-//            }
-//            if (has_loose_ends) {
-//                #ifdef ALLOW_DEBUG
-//                logger::Instance()->debug("Option F2 "+ std::to_string(g.id(n)) +"\n");
-//                #endif
-//                insert_local_known(n, g, temp_know_paths, temp_know_back_paths, know_paths, know_back_paths);
-//                
-//                unravel_single(n, know_paths, know_back_paths, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-//                clean_barred_leftovers(n, know_paths, know_back_paths, barred, g, flow, means, edge_specifier, edge_type, edge_lengths, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-//
-//                return true;
-//            }
-//        }
-//    }
-    
-    
+        
     if (!final_resolve) {
         bool barr_edge = false;
         ListDigraph::Node node;
@@ -6681,7 +7543,7 @@ bool base_manager::simplify_ambiguous_ILP(
             
             ListDigraph::Arc nbarc;
             float ndr = 0;
-            if (bar_smallest_edge(n, g, flow, means, barred, 0.75, nbarc, ndr, block_delete_weak[n])) {
+            if (bar_negligible_edge(n, g, flow, means, barred, 0.75, nbarc, ndr, block_delete_high_res[n])) {
                 if ((ndr < dr || !barr_edge)) { //&& !temp_know_paths[nbarc].is_evidenced_path() && !temp_know_back_paths[nbarc].is_evidenced_path() ) {
                     dr = ndr;
                     barc = nbarc;
@@ -6718,7 +7580,44 @@ bool base_manager::simplify_ambiguous_ILP(
 }
 
 
-void base_manager::compute_edge_groups(std::deque<std::set<int> > &hits, std::deque<std::set<int> > &groups) {
+void base_manager::compute_edge_groups(std::set<std::set<int> > &rawhits, std::deque<std::set<int> > &groups) {
+    
+
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Compute Edgegroup\n");
+    #endif
+
+    std::deque<std::set<int> > hits;
+    for(std::set<std::set<int> >::iterator ri = rawhits.begin(); ri != rawhits.end(); ++ri) {
+        hits.push_back(*ri);
+    }
+
+    std::sort(hits.begin(), hits.end(), []( std::set<int> & a, std::set<int> & b) -> bool {return a.size() < b.size();});
+
+    for (std::deque<std::set<int> >::iterator hi = hits.begin(); hi != hits.end(); ) {
+
+        bool global_contained = false;
+        for (std::deque<std::set<int> >::iterator hi2 = hi+1 ; hi2 != hits.end(); ++hi2) {
+            bool contained = true;
+            for (std::set<int>::iterator si = hi->begin(); si != hi->end(); ++si) {
+                
+                if ( hi2->find(*si) == hi2->end() ) {
+                    contained = false;
+                    break;
+                }
+            }
+            if (contained) {
+                global_contained = true;
+                break;
+            }
+        }
+        
+        if (global_contained) {
+            hi = hits.erase(hi); 
+        } else {
+            ++hi;
+        }
+    }
     
     unsigned int size = hits.size();
     
@@ -6794,7 +7693,7 @@ void base_manager::compute_edge_groups(std::deque<std::set<int> > &hits, std::de
     }
 }
 
-bool base_manager::bar_smallest_edge(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<bool> &barred, float ratio, ListDigraph::Arc &barc, float &value, std::unordered_set<int> &block_delete) {
+bool base_manager::bar_negligible_edge(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<bool> &barred, float ratio, ListDigraph::Arc &barc, float &value, std::unordered_set<int> &block_delete) {
         
     float max_left = 0;
     float sum_left = 0;
@@ -6831,6 +7730,8 @@ bool base_manager::bar_smallest_edge(ListDigraph::Node node, ListDigraph &wc, Li
 
         float score = mc[a].compute_score();
         
+        logger::Instance()->debug("RA " + std::to_string(wc.id(a)) + " " + std::to_string(score) + " " + std::to_string(block_delete.find(wc.id(a)) == block_delete.end()) + "\n");
+
         if (score > max_right) {
             max_right = score;
         }
@@ -6882,6 +7783,106 @@ bool base_manager::bar_smallest_edge(ListDigraph::Node node, ListDigraph &wc, Li
     return false;
 }
 
+
+bool base_manager::bar_smallest_edge(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<bool> &barred, float ratio, ListDigraph::Arc &barc, float &value, std::unordered_set<int> &block_delete) {
+        
+    float max_left = 0;
+    float sum_left = 0;
+    float min_left = -1;
+    ListDigraph::Arc larc;
+    
+    float max_right = 0;
+    float sum_right = 0;
+    float min_right = -1;
+    ListDigraph::Arc rarc;
+    
+    for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ++a) {
+        
+        if (barred[a] ) {
+            continue;
+        }
+        
+        float score = mc[a].compute_score();
+        
+        if (score > max_left) {
+            max_left = score;
+        }
+        if ((score < min_left || min_left < 0)) {
+            min_left = score;
+            larc = a;
+        }
+        sum_left += score;
+    }
+    for (ListDigraph::OutArcIt a(wc, node); a!=INVALID; ++a) {
+        
+        if (barred[a]) {
+            continue;
+        }
+
+        float score = mc[a].compute_score();
+        
+        if (score > max_right) {
+            max_right = score;
+        }
+        if ((score < min_right || min_right < 0)) {
+            min_right = score;
+            rarc = a;
+        }
+        sum_right += score;
+    }
+    
+    bool left_bar = max_left != 0 && min_left > 0 && (float) min_left <= ratio * (float) sum_left;
+    bool right_bar = max_right != 0 && min_right > 0 && (float) min_right <= ratio * (float) sum_right;  
+    
+    float lr = 1;
+    if (sum_left != 0 && min_left > 0) lr = min_left / max_left;
+    float rr = 1;
+    if (sum_right != 0 && min_right > 0) rr = min_right / max_right;
+    
+//    bool left_bar = lr <= ratio;
+//    bool right_bar = rr <= ratio; 
+            
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Barr Arcs " + std::to_string(wc.id(node)) + " " + std::to_string(wc.id(larc)) + " " + std::to_string(wc.id(rarc)) + "\n");
+    logger::Instance()->debug("Left Barr " + std::to_string(left_bar) + " " + std::to_string(min_left) + " " + std::to_string(lr) + "\n");
+    logger::Instance()->debug("Right Barr " + std::to_string(right_bar) + " " + std::to_string(min_right) + " " + std::to_string(rr) + "\n");
+    #endif
+    
+    if (left_bar && right_bar) {
+        if (lr < rr) {
+            if (block_delete.find(wc.id(larc)) != block_delete.end()) {
+                return false;
+            }
+            barc = larc;
+            value = lr;
+        } else {
+            if (block_delete.find(wc.id(rarc)) != block_delete.end()) {
+                return false;
+            }
+            barc = rarc;
+            value = rr;
+        }
+        return true;
+    }
+    if (left_bar) {
+        if (block_delete.find(wc.id(larc)) != block_delete.end()) {
+            return false;
+        }
+        barc = larc;
+        value = lr;
+        return true;
+    }
+    if (right_bar) {
+        if (block_delete.find(wc.id(rarc)) != block_delete.end()) {
+            return false;
+        }
+        barc = rarc;
+        value = rr;
+        return true;
+    }
+        
+    return false;
+}
 
 bool base_manager::bar_smallest_edge_by_group(ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, std::set<int> &group, float ratio, ListDigraph::Arc &barc, float &value) {
         
@@ -7071,6 +8072,21 @@ void base_manager::insert_local_known(ListDigraph::Node node, ListDigraph &wc, L
     
 }
 
+void base_manager::add_local_known(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<arc_bridge> &temp_know_paths, ListDigraph::ArcMap<arc_back_bridge> &temp_know_back_paths,
+            ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths) {
+    
+    for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ++a) {
+        for (arc_bridge::iterator bi = temp_know_paths[a].begin(); bi != temp_know_paths[a].end(); ++bi) {
+            know_paths[a][bi->first] += bi->second;
+        }
+    }
+    for (ListDigraph::OutArcIt a(wc, node); a!=INVALID; ++a) {
+        for (arc_back_bridge::iterator bi = temp_know_back_paths[a].begin(); bi != temp_know_back_paths[a].end(); ++bi) {
+            know_back_paths[a].bridges->insert(*bi);
+        }
+    }
+}
+
 void base_manager::compute_ratio(ListDigraph::Node node,
             ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
             std::set<int> &component,
@@ -7193,6 +8209,7 @@ void base_manager::compute_ratio(ListDigraph::Node node,
 
 capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
             ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
+            std::map<int, evidence_group> & left_groups, std::map<int, evidence_group> & right_groups, ListDigraph::ArcMap<bool> &barred,
             std::deque< resolve_count_set > &hit_counter_all,
             std::set<int> &component,
             ListDigraph &wc,
@@ -7200,7 +8217,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
             ListDigraph::ArcMap<edge_types::edge_type> &cet, ListDigraph::ArcMap<edge_length> &cel,
             ListDigraph::ArcMap<unsigned int> &cycle_id_in, ListDigraph::ArcMap<unsigned int> &cycle_id_out,
             ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
-            ListDigraph::NodeMap< unsecurity_id> &unsecurityId) {
+            ListDigraph::NodeMap< unsecurity_id> &unsecurityId, ListDigraph::NodeMap<unsigned int> &ni, unsigned int size) {
     
     using namespace lemon;
     
@@ -7208,54 +8225,40 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
     capacity_type flow_reference_out = 0;
     capacity_type flow_evidence = 0;
     
-    std::deque<ListDigraph::Arc> inArc, outArc;
+    std::deque<ListDigraph::Arc> inArc;
+    
+    std::set<int> in_groups, out_groups;
+    std::map<int, std::set<int> > rev_in_groups;
+    std::map<int, std::set<int> > rev_out_groups;
+    
+    std::map<int, evidence_group* > rev_in_groups_ev;
+    std::map<int, evidence_group* > rev_out_groups_ev;
     
     for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ++a) {
-        if (component.find(wc.id(a)) != component.end()) {
-            flow_reference_in += fc[a];
+        int id = wc.id(a);
+        if (component.find(id) != component.end()) {
             inArc.push_back(a);
+            flow_reference_in += fc[a];
+            in_groups.insert(left_groups[id].id);
+            rev_in_groups[left_groups[id].id].insert(id);
+            rev_in_groups_ev[left_groups[id].id] = &left_groups[id];
         }
     }
-    std::sort(inArc.begin(), inArc.end(), [&fc](const ListDigraph::Arc a1, const ListDigraph::Arc a2){return fc[a1] < fc[a2];});
-    
+
     for (ListDigraph::OutArcIt a(wc, node); a!=INVALID; ++a) {
-        if (component.find(wc.id(a)) != component.end()) {
+        int id = wc.id(a);
+        if (component.find(id) != component.end()) { 
             flow_reference_out += fc[a];
-            outArc.push_back(a);
+            out_groups.insert(right_groups[id].id);
+            rev_out_groups[right_groups[id].id].insert(id);
+            rev_out_groups_ev[right_groups[id].id] = &right_groups[id];
         }
     }
-    std::sort(outArc.begin(), outArc.end(), [&fc](const ListDigraph::Arc a1, const ListDigraph::Arc a2){return fc[a1] < fc[a2];});
-    
+
     capacity_type flow_reference = std::min(flow_reference_in, flow_reference_out);
 
-    bool left_overhead = flow_reference_in > flow_reference_out;
-    bool right_overhead = flow_reference_in < flow_reference_out;
-    rcount overhead;
-    if (left_overhead) {
-        overhead = flow_reference_in - flow_reference_out;
-    } else {
-        overhead = flow_reference_out - flow_reference_in;
-    }
-    
-    ListDigraph::ArcMap<capacity_type> offset(wc);
-    if (left_overhead) {
-        if (overhead < fc[*inArc.rbegin()]) {
-            offset[*inArc.rbegin()] = overhead;
-            logger::Instance()->debug("Set Offset L " + std::to_string(wc.id(*inArc.rbegin())) + " Overhead " + std::to_string(overhead) + "\n");
-        }
-    }
-    if (right_overhead) {
-        if (overhead < fc[*outArc.rbegin()]) {
-            offset[*outArc.rbegin()] = overhead;
-            logger::Instance()->debug("Set Offset R " + std::to_string(wc.id(*outArc.rbegin())) + " Overhead " + std::to_string(overhead) + "\n");
-        }
-    }
-    
-    logger::Instance()->debug("Flow " + std::to_string(flow_reference) + " Overhead " + std::to_string(overhead) + "\n");
-    
     for (std::deque< resolve_count_set >::iterator ha = hit_counter_all.begin(); ha != hit_counter_all.end(); ++ha) {
         flow_evidence += ha->count;
-//        logger::Instance()->debug("Hit in A " + std::to_string(ha->count) + "\n");
     }
     
     // now vamp up the evidences to match!
@@ -7284,59 +8287,160 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
     Lp::Expr optimize;
     
     for (std::deque<ListDigraph::Arc>::iterator a_it = inArc.begin(); a_it != inArc.end(); ++a_it) {
-        ListDigraph::Arc a = *a_it;
-        
-        for (arc_bridge::iterator bi = know_paths[a].begin(); bi != know_paths[a].end(); ++bi) {
-            ListDigraph::Arc right = wc.arcFromId(bi->first);
-            bi_edges.insert(std::make_pair(std::make_pair(wc.id(a), wc.id(right)), lp.addCol()));
-            
-            lp.colLowerBound(bi_edges[std::make_pair(wc.id(a), wc.id(right))], 0);
-            lp.colUpperBound(bi_edges[std::make_pair(wc.id(a), wc.id(right))], Lp::INF);
-            
-//            logger::Instance()->debug("ADD " + std::to_string(wc.id(a)) + " " + std::to_string(wc.id(right)) + "\n");
-
-        }
-    }
-
-    for (std::deque<ListDigraph::Arc>::iterator a_it = inArc.begin(); a_it != inArc.end(); ++a_it) {
         ListDigraph::Arc left = *a_it;
         
-        Lp::Expr abs1, abs2;
-        abs1 += fc[left] - offset[left];
         for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
             ListDigraph::Arc right = wc.arcFromId(bi->first);
             
-            abs1 -= bi_edges[std::make_pair(wc.id(left), wc.id(right))];
-            abs2 += bi_edges[std::make_pair(wc.id(left), wc.id(right))]; 
+            int lg = left_groups[wc.id(left)].id;
+            int rg = right_groups[wc.id(right)].id;
+            
+            logger::Instance()->debug("Bi " + std::to_string(wc.id(left)) + " " + std::to_string(wc.id(right)) + " : " + std::to_string(lg) + " " + std::to_string(rg) + "\n");
+            
+            if ( bi_edges.find(std::make_pair(lg, rg)) != bi_edges.end() ) {
+                continue; // only set up this variable once
+            }
+            
+            bi_edges.insert(std::make_pair(std::make_pair(lg, rg), lp.addCol()));
+            
+            lp.colLowerBound(bi_edges[std::make_pair(lg, rg)], 0);
+            lp.colUpperBound(bi_edges[std::make_pair(lg, rg)], Lp::INF);
+        }
+    }
+
+    for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
+        int lg = *lg_it;
+        
+        capacity_type group_cap = 0;
+        std::set<int> know_groups;
+        for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+            ListDigraph::Arc left = wc.arcFromId(*ri);
+            group_cap += fc[left];
+            for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
+                know_groups.insert(right_groups[bi->first].id);
+            }
+        }
+        
+        Lp::Expr abs1, abs2;
+        abs1 += group_cap;
+        for (std::set<int>::iterator ki = know_groups.begin(); ki != know_groups.end(); ++ki) {
+            int rg = *ki;
+            
+            abs1 -= bi_edges[std::make_pair(lg, rg)];
+            abs2 += bi_edges[std::make_pair(lg, rg)]; 
         }
         
         left_z.push_back(lp.addCol());
         lp.addRow(left_z.back() >= abs1);
-        lp.addRow( abs2 <= fc[left] - offset[left]); 
-        optimize += left_z.back();// * fc[left];
+        lp.addRow( abs2 <= group_cap); 
+        optimize += left_z.back();
     }
-
-    for (std::deque<ListDigraph::Arc>::iterator a_it = outArc.begin(); a_it != outArc.end(); ++a_it) {
-        ListDigraph::Arc right = *a_it;
+    
+    for (std::set<int>::iterator rg_it = out_groups.begin(); rg_it != out_groups.end(); ++rg_it) {
+        int rg = *rg_it;
         
-        Lp::Expr abs1, abs2;
-        abs1 += fc[right] - offset[right];
-        for (arc_back_bridge::iterator bi = know_back_paths[right].begin(); bi != know_back_paths[right].end(); ++bi) {
-            ListDigraph::Arc left = wc.arcFromId(*bi);
-            
-            abs1 -= bi_edges[std::make_pair(wc.id(left), wc.id(right))];
-            abs2 += bi_edges[std::make_pair(wc.id(left), wc.id(right))]; 
+        capacity_type group_cap = 0;
+        std::set<int> know_groups;
+        for (std::set<int>::iterator ri = rev_out_groups[rg].begin(); ri != rev_out_groups[rg].end(); ++ri) {
+            ListDigraph::Arc right = wc.arcFromId(*ri);
+            group_cap += fc[right];
+            for (arc_back_bridge::iterator bi = know_back_paths[right].begin(); bi != know_back_paths[right].end(); ++bi) {
+                know_groups.insert(left_groups[*bi].id);
+            }
         }
         
-        right_z.push_back(lp.addCol());
-        lp.addRow(right_z.back() >= abs1);
-        lp.addRow(abs2 <= fc[right] - offset[right]); 
-        optimize += right_z.back();// * fc[right];
-    }
+        Lp::Expr abs1, abs2;
+        abs1 += group_cap;
+        for (std::set<int>::iterator ki = know_groups.begin(); ki != know_groups.end(); ++ki) {
+            int lg = *ki;
+            
+            abs1 -= bi_edges[std::make_pair(lg, rg)];
+            abs2 += bi_edges[std::make_pair(lg, rg)]; 
+        }
         
-    // Specify the objective function
+        left_z.push_back(lp.addCol());
+        lp.addRow(left_z.back() >= abs1);
+        lp.addRow( abs2 <= group_cap); 
+        optimize += left_z.back();
+    }
+    
+    Lp::Expr optimize2;
+    std::deque<Lp::Col> opts;
+    std::deque<Lp::Col> constraints;
+
+    std::map<std::pair< int, int > , Lp::Expr> constraint_map_plus;
+    std::map<std::pair< int, int > , Lp::Expr> constraint_map_minus;
+    for (std::deque< resolve_count_set >::iterator ha = hit_counter_all.begin(); ha != hit_counter_all.end(); ++ha) {
+        
+        std::set<int> lg_set, rg_set;
+        for (std::set<int>::iterator li = ha->left.begin(); li != ha->left.end(); ++li) {
+            lg_set.insert(left_groups[*li].id);
+        }
+        for (std::set<int>::iterator ri = ha->right.begin(); ri != ha->right.end(); ++ri) {
+            rg_set.insert(right_groups[*ri].id);
+        }        
+        
+//        logger::Instance()->debug("AllCombo START\n");
+        Lp::Expr all_combos = 0;
+        bool existing_edge = false;
+        for (std::set<int>::iterator li = lg_set.begin(); li != lg_set.end(); ++li) {
+            for (std::set<int>::iterator ri = rg_set.begin(); ri != rg_set.end(); ++ri) {
+                
+                if (bi_edges.find(std::make_pair(*li,*ri)) == bi_edges.end()) { // we only add in ACTUAL valid edges!
+                    continue;
+                }
+                
+                existing_edge = true;
+                
+                constraints.push_back(lp.addCol());
+                lp.colLowerBound(constraints.back(), 0);
+                lp.colUpperBound(constraints.back(), ha->count);
+                all_combos += constraints.back();
+                
+                if (constraint_map_plus.find(std::make_pair(*li,*ri)) ==  constraint_map_plus.end()) {
+                    constraint_map_plus[std::make_pair(*li,*ri)] = 0;
+                }
+                if (constraint_map_minus.find(std::make_pair(*li,*ri)) ==  constraint_map_minus.end()) {
+                    constraint_map_minus[std::make_pair(*li,*ri)] = bi_edges[std::make_pair(*li,*ri)];
+                }
+                    
+                constraint_map_plus[std::make_pair(*li,*ri)] += constraints.back();
+                constraint_map_minus[std::make_pair(*li,*ri)] -= constraints.back(); 
+
+//                logger::Instance()->debug("C " + std::to_string(*li) + " " + std::to_string(*ri) + "\n");
+            }
+        }
+        
+//        logger::Instance()->debug("AllCombo " + std::to_string(ha->count) + "\n");
+        if (existing_edge) {
+            lp.addRow(all_combos == ha->count);
+        }
+    }
+    
+    for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
+        int lg = *lg_it;
+
+        std::set<int> know_groups;
+        for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+            for (arc_bridge::iterator bi = know_paths[wc.arcFromId(*ri)].begin(); bi != know_paths[wc.arcFromId(*ri)].end(); ++bi) {
+                ListDigraph::Arc right = wc.arcFromId(bi->first);
+                know_groups.insert(right_groups[wc.id(right)].id);
+            }
+        }
+        
+        for (std::set<int>::iterator ki = know_groups.begin(); ki != know_groups.end(); ++ki) {
+            int rg = *ki;
+            
+            opts.push_back(lp.addCol());
+            lp.addRow(opts.back() >= constraint_map_plus[std::make_pair(lg, rg)] - bi_edges[std::make_pair(lg, rg)]);
+            lp.addRow(opts.back() >= constraint_map_minus[std::make_pair(lg, rg)]); 
+            optimize2 += opts.back(); 
+        }
+    }
+    
+    // compute second solution
     lp.min();
-    lp.obj(optimize);
+    lp.obj(optimize2);
     
     // Solve the problem using the underlying LP solver
     lp.solve();
@@ -7347,123 +8451,107 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
         #endif
         return 0;
     }
-  
+    
     #ifdef ALLOW_DEBUG
-    for (std::map<std::pair< int, int > , Lp::Col>::iterator it = bi_edges.begin(); it != bi_edges.end(); ++it) {
-         logger::Instance()->debug("XX " + std::to_string(it->first.first) + "-" + std::to_string(it->first.second) + " " + std::to_string(lp.primal(it->second)) + "\n");
+    logger::Instance()->debug("Costs " + std::to_string(lp.primal()) + " as " + std::to_string(lp.primal(optimize2)) + "\n");
+    for (std::deque<Lp::Col>::iterator it = constraints.begin(); it != constraints.end(); ++it) {
+         logger::Instance()->debug("Con " + std::to_string(lp.primal(*it)) + "\n");
     }
+    std::deque<Lp::Col>::iterator opi = opts.begin();
+    for (std::map<std::pair< int, int > , Lp::Col>::iterator it = bi_edges.begin(); it != bi_edges.end(); ++it, ++opi) {
+         logger::Instance()->debug("XX1 " + std::to_string(it->first.first) + "-" + std::to_string(it->first.second) + " " + std::to_string(lp.primal(it->second)) + " W " + std::to_string(lp.primal(constraint_map_plus[std::make_pair(it->first.first, it->first.second)]))  + "\n");
+    }
+    logger::Instance()->debug("LP A Done\n");
     #endif
+
+    // after optimizing constraints we optimize flow in a second step
     
     
     Lp lp2;
     std::map<std::pair< int, int > , Lp::Col> bi_edges2;
-    std::deque<Lp::Col> opts;
-    std::deque<Lp::Col> constraints;
-    Lp::Expr optimize2;
-        
+    std::deque<Lp::Col> left_z2;
+    std::deque<Lp::Col> right_z2;
+    Lp::Expr optimize3;
+    
     for (std::deque<ListDigraph::Arc>::iterator a_it = inArc.begin(); a_it != inArc.end(); ++a_it) {
         ListDigraph::Arc left = *a_it;
         
-        Lp::Expr xee = 0;
-        int xee_sum = 0; 
         for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
             ListDigraph::Arc right = wc.arcFromId(bi->first);
             
-            xee_sum += std::round(lp.primal(bi_edges[std::make_pair(wc.id(left), wc.id(right))]));
+            int lg = left_groups[wc.id(left)].id;
+            int rg = right_groups[wc.id(right)].id;
             
-            bi_edges2.insert(std::make_pair(std::make_pair(wc.id(left), wc.id(right)), lp2.addCol())); 
-            lp2.colLowerBound(bi_edges2[std::make_pair(wc.id(left), wc.id(right))], 0);
-            lp2.colUpperBound(bi_edges2[std::make_pair(wc.id(left), wc.id(right))], Lp::INF);
+            if ( bi_edges2.find(std::make_pair(lg, rg)) != bi_edges2.end() ) {
+                continue; // only set up this variable once
+            }
             
-            xee += bi_edges2[std::make_pair(wc.id(left), wc.id(right))];  
+            bi_edges2.insert(std::make_pair(std::make_pair(lg, rg), lp2.addCol()));
             
-           logger::Instance()->debug("Xee " + std::to_string(wc.id(left)) + " " + std::to_string(wc.id(right)) + "\n");
+            lp2.colLowerBound(bi_edges2[std::make_pair(lg, rg)], lp.primal(bi_edges[std::make_pair(lg, rg)]));
+            lp2.colUpperBound(bi_edges2[std::make_pair(lg, rg)], Lp::INF);
         }
-             
-        logger::Instance()->debug("Sum " + std::to_string(xee_sum) + "\n");
-        lp2.addRow(xee == xee_sum);
     }
-    
-    for (std::deque<ListDigraph::Arc>::iterator a_it = outArc.begin(); a_it != outArc.end(); ++a_it) {
-        ListDigraph::Arc right = *a_it;
-        
-        Lp::Expr xee = 0;
-        int xee_sum = 0; 
-        for (arc_back_bridge::iterator bi = know_back_paths[right].begin(); bi != know_back_paths[right].end(); ++bi) {
-            ListDigraph::Arc left = wc.arcFromId(*bi);
-            
-            xee_sum += std::round(lp.primal(bi_edges[std::make_pair(wc.id(left), wc.id(right))]));
-            xee += bi_edges2[std::make_pair(wc.id(left), wc.id(right))]; 
-            
-            logger::Instance()->debug("Xee " + std::to_string(wc.id(left)) + " " + std::to_string(wc.id(right)) + "\n");           
-        }
-        logger::Instance()->debug("Sum " + std::to_string(xee_sum) + "\n");
-        lp2.addRow(xee == xee_sum);
-    }  
-    
-    std::map<std::pair< int, int > , Lp::Expr> constraint_map_plus;
-    std::map<std::pair< int, int > , Lp::Expr> constraint_map_minus;
-    std::map<std::pair< int, int > , rcount> counts;
-    for (std::deque< resolve_count_set >::iterator ha = hit_counter_all.begin(); ha != hit_counter_all.end(); ++ha) {
-        
-//        logger::Instance()->debug("AllCombo START\n");
-        Lp::Expr all_combos = 0;
-        bool existing_edge = false;
-        int variation_count = ha->left.size() * ha->right.size();
-        for (std::set<int>::iterator li = ha->left.begin(); li != ha->left.end(); ++li) {
-            for (std::set<int>::iterator ri = ha->right.begin(); ri != ha->right.end(); ++ri) {
-                
-                if (bi_edges2.find(std::make_pair(*li,*ri)) == bi_edges2.end()) { // we only add in ACTUAL valid edges!
-                    continue;
-                }
-                
-                existing_edge = true;
-                
-                constraints.push_back(lp2.addCol());
-                lp2.colLowerBound(constraints.back(), 0);
-                lp2.colUpperBound(constraints.back(), ha->count);
-                all_combos += constraints.back();
-                
-                if (constraint_map_plus.find(std::make_pair(*li,*ri)) ==  constraint_map_plus.end()) {
-                    constraint_map_plus[std::make_pair(*li,*ri)] = 0;
-                }
-                if (constraint_map_minus.find(std::make_pair(*li,*ri)) ==  constraint_map_minus.end()) {
-                    constraint_map_minus[std::make_pair(*li,*ri)] = bi_edges2[std::make_pair(*li,*ri)];
-                }
-                    
 
-                constraint_map_plus[std::make_pair(*li,*ri)] += constraints.back();
-                constraint_map_minus[std::make_pair(*li,*ri)] -= constraints.back(); 
-                
-                counts[std::make_pair(*li,*ri)] += ha->count/variation_count;
-                
-//                logger::Instance()->debug("C " + std::to_string(*li) + " " + std::to_string(*ri) + "\n");
+    for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
+        int lg = *lg_it;
+        
+        capacity_type group_cap = 0;
+        std::set<int> know_groups;
+        for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+            ListDigraph::Arc left = wc.arcFromId(*ri);
+            group_cap += fc[left];
+            for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
+                know_groups.insert(right_groups[bi->first].id);
             }
         }
         
-//        logger::Instance()->debug("AllCombo " + std::to_string(ha->count) + "\n");
-        if (existing_edge) {
-            lp2.addRow(all_combos == ha->count);
-        }
-    }
-    
-    for (std::deque<ListDigraph::Arc>::iterator a_it = inArc.begin(); a_it != inArc.end(); ++a_it) {
-        ListDigraph::Arc left = *a_it;
-        
-        for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
-            ListDigraph::Arc right = wc.arcFromId(bi->first);
+        Lp::Expr abs1, abs2;
+        abs1 += group_cap;
+        for (std::set<int>::iterator ki = know_groups.begin(); ki != know_groups.end(); ++ki) {
+            int rg = *ki;
             
-            opts.push_back(lp2.addCol());
-            lp2.addRow(opts.back() >= constraint_map_plus[std::make_pair(wc.id(left), wc.id(right))] - bi_edges2[std::make_pair(wc.id(left), wc.id(right))]);
-            lp2.addRow(opts.back() >= constraint_map_minus[std::make_pair(wc.id(left), wc.id(right))]); 
-            optimize2 += opts.back();// * counts[std::make_pair(wc.id(left), wc.id(right))];   
+            abs1 -= bi_edges2[std::make_pair(lg, rg)];
+            abs2 += bi_edges2[std::make_pair(lg, rg)]; 
         }
+        
+        left_z2.push_back(lp2.addCol());
+        lp2.addRow(left_z2.back() >= abs1);
+        lp2.addRow( abs2 <= group_cap); 
+        optimize3 += left_z2.back();
     }
     
-
-    // compute second solution
+    for (std::set<int>::iterator rg_it = out_groups.begin(); rg_it != out_groups.end(); ++rg_it) {
+        int rg = *rg_it;
+        
+        capacity_type group_cap = 0;
+        std::set<int> know_groups;
+        for (std::set<int>::iterator ri = rev_out_groups[rg].begin(); ri != rev_out_groups[rg].end(); ++ri) {
+            ListDigraph::Arc right = wc.arcFromId(*ri);
+            group_cap += fc[right];
+            for (arc_back_bridge::iterator bi = know_back_paths[right].begin(); bi != know_back_paths[right].end(); ++bi) {
+                know_groups.insert(left_groups[*bi].id);
+            }
+        }
+        
+        Lp::Expr abs1, abs2;
+        abs1 += group_cap;
+        for (std::set<int>::iterator ki = know_groups.begin(); ki != know_groups.end(); ++ki) {
+            int lg = *ki;
+            
+            abs1 -= bi_edges2[std::make_pair(lg, rg)];
+            abs2 += bi_edges2[std::make_pair(lg, rg)]; 
+        }
+        
+        left_z2.push_back(lp2.addCol());
+        lp2.addRow(left_z2.back() >= abs1);
+        lp2.addRow( abs2 <= group_cap); 
+        optimize3 += left_z2.back();
+    }
+    
+        
     lp2.min();
-    lp2.obj(optimize2);
+    lp2.obj(optimize3);
     
     // Solve the problem using the underlying LP solver
     lp2.solve();
@@ -7476,10 +8564,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
     }
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Costs " + std::to_string(lp2.primal()) + "\n");
-    for (std::deque<Lp::Col>::iterator it = constraints.begin(); it != constraints.end(); ++it) {
-         logger::Instance()->debug("Con " + std::to_string(lp2.primal(*it)) + "\n");
-    }
+    logger::Instance()->debug("Costs " + std::to_string(lp2.primal()) + " as " + std::to_string(lp2.primal(optimize)) + "\n");
     for (std::map<std::pair< int, int > , Lp::Col>::iterator it = bi_edges2.begin(); it != bi_edges2.end(); ++it) {
          logger::Instance()->debug("XX2 " + std::to_string(it->first.first) + "-" + std::to_string(it->first.second) + " " + std::to_string(lp2.primal(it->second)) + "\n");
     }
@@ -7489,38 +8574,361 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
     // primal solutions of Xees are now the interesting characteristic!
     // we extract exactly with them!
     
-    capacity_type max_cap = 0;
-    for (std::deque<ListDigraph::Arc>::iterator a_it = inArc.begin(); a_it != inArc.end(); ++a_it) {
-        ListDigraph::Arc left = *a_it;
-        
-        for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
-            ListDigraph::Arc right = wc.arcFromId(bi->first);
+    // move around blocked nodes
+    std::map<int, ListDigraph::Node > new_group_nodes_left;
+    for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
+        int lg = *lg_it;
+        if (rev_in_groups_ev[lg]->block) {
+            new_group_nodes_left[lg] = wc.addNode();
+            ni[new_group_nodes_left[lg]] = ni[node];
+            unsecurityId[new_group_nodes_left[lg]] = unsecurityId[node];
             
-            capacity_type cap = lp2.primal(bi_edges2[std::make_pair(wc.id(left),  wc.id(right))]) + 0.001;
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Migrate Group " + std::to_string(lg) + " to new Group " + std::to_string(wc.id(new_group_nodes_left[lg])) + "\n");
+            #endif
+
+            //move over the edges
+            for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+                wc.changeTarget(wc.arcFromId(*ri), new_group_nodes_left[lg]);
+            }
+        }
+    }
+    std::map<int, ListDigraph::Node > new_group_nodes_right;
+    for (std::set<int>::iterator rg_it = out_groups.begin(); rg_it != out_groups.end(); ++rg_it) {
+        int rg = *rg_it;
+        if (rev_out_groups_ev[rg]->block) {
+            new_group_nodes_right[rg] = wc.addNode();
+            ni[new_group_nodes_right[rg]] = ni[node];
+            unsecurityId[new_group_nodes_right[rg]] = unsecurityId[node];
+            
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Migrate Group " + std::to_string(rg) + " to new Group " + std::to_string(wc.id(new_group_nodes_right[rg])) + "\n");
+            #endif
+            
+            //move over the edges
+            for (std::set<int>::iterator ri = rev_out_groups[rg].begin(); ri != rev_out_groups[rg].end(); ++ri) {
+                wc.changeSource(wc.arcFromId(*ri), new_group_nodes_right[rg]);
+            }
+        }
+    }
+    
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Extract Groups\n");
+    #endif
+    
+    capacity_type max_cap = 0;
+    for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
+        int lg = *lg_it;
+        
+        std::set<int> know_groups;
+        for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+            ListDigraph::Arc left = wc.arcFromId(*ri);
+            for (arc_bridge::iterator bi = know_paths[left].begin(); bi != know_paths[left].end(); ++bi) {
+                ListDigraph::Arc right = wc.arcFromId(bi->first);
+                if (right_groups[wc.id(right)].id != -1) know_groups.insert(right_groups[wc.id(right)].id);
+            }
+        }
+        
+        for (std::set<int>::iterator ki = know_groups.begin(); ki != know_groups.end(); ++ki) {
+            int rg = *ki;
+            
+            capacity_type cap = lp2.primal(bi_edges2[std::make_pair(lg, rg)]) + 0.001;
+            
+            if (cap == 0) {
+                continue;
+            }
+            
             if (cap > max_cap) {
                 max_cap = cap;
             }
             
-            unravel_ILP(wc.id(left), wc.id(right), cap, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);            
+             #ifdef ALLOW_DEBUG
+             logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "\n");
+             #endif
+            
+            // which groups do we resolve?
+            if (rev_in_groups_ev[lg]->block && rev_out_groups_ev[rg]->block) {
+                
+                #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "Double Block \n");
+                #endif
+
+                ListDigraph::Arc new_arc = wc.addArc(new_group_nodes_left[lg], new_group_nodes_right[rg]);
+                cet[new_arc] = edge_types::RESOLVE_HELPER;
+                fc[new_arc] = cap;
+                ces[new_arc] = exon_edge(size);
+                
+                float mean_left = 0;
+                float score_left = 0;
+                capacity_type weight_left = 0;
+                for (ListDigraph::InArcIt a(wc, new_group_nodes_left[lg]); a!=INVALID; ++a) {
+                    if (!barred[a]) {
+                        mean_left += fc[a] * mc[a].mean;
+                        score_left += fc[a] * mc[a].compute_score();
+                        weight_left += fc[a];
+                    }
+                }
+                mean_left = mean_left / (float) weight_left;
+                score_left = score_left / (float) weight_left;
+                
+                float mean_right = 0;
+                float score_right = 0;
+                capacity_type weight_right = 0;
+                for (ListDigraph::OutArcIt a(wc, new_group_nodes_right[rg]); a!=INVALID; ++a) {
+                    if (!barred[a]) {
+                        mean_right += fc[a] * mc[a].mean;
+                        score_right += fc[a] * mc[a].compute_score();
+                        weight_right += fc[a];
+                    }
+                }
+                mean_right = mean_right / (float) weight_right;
+                score_right = score_right / (float) weight_right;
+                
+                float mean;
+                float score;
+                capacity_type weight;
+                if (score_left > score_right) {
+                    mean = mean_left;
+                    score = score_left;
+                    weight = weight_left;
+                } else {
+                    mean = mean_right;
+                    score = score_right;
+                    weight = weight_right;
+                }
+
+                float ratio = (float) cap / (float) weight;
+                mc[new_arc].hidden_score = score * ratio;
+                mc[new_arc].weight = 0;
+                mc[new_arc].mean = mean * ratio;
+                
+            } else if (rev_in_groups_ev[lg]->block || rev_out_groups_ev[rg]->block) {
+                
+                #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "Single Block \n");
+                #endif
+                
+                ListDigraph::Arc base_arc, new_arc;
+                
+                if (rev_in_groups_ev[lg]->block) {
+                    base_arc = wc.arcFromId(*rev_out_groups[rg].begin());
+                    new_arc = wc.addArc(new_group_nodes_left[lg], wc.target(base_arc));
+                } else { // rev_out_groups_ev[rg].block
+                    base_arc = wc.arcFromId(*rev_in_groups[lg].begin());
+                    new_arc = wc.addArc(wc.source(base_arc), new_group_nodes_right[rg]);
+                }
+            
+                // just copy over stuff   
+                ces[new_arc] = ces[base_arc];
+                cet[new_arc] = cet[base_arc];
+                cel[new_arc] = cel[base_arc];
+                fc[new_arc] = cap;
+                mc[new_arc] = mc[base_arc];
+                mc[new_arc].reduce(cap/ float(fc[base_arc]));
+                
+                mc[base_arc].reduce((fc[base_arc] - cap)/ float(fc[base_arc]));
+                fc[base_arc] -= cap;
+                
+                
+                if (unsecurityArc[base_arc].has_ref()) {
+                    std::copy(unsecurityArc[base_arc]->begin(), unsecurityArc[base_arc]->end(), std::inserter(unsecurityArc[new_arc].ref(), unsecurityArc[new_arc]->end()));
+                }
+                
+                cycle_id_in[new_arc] = cycle_id_in[base_arc];
+                cycle_id_out[new_arc] = cycle_id_out[base_arc];
+                
+                if (rev_in_groups_ev[lg]->block) {
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("In Know \n");
+                    #endif
+                    know_paths[new_arc].bridges.ref() = know_paths[base_arc].bridges.ref(); // deep copy
+                    if (fc[base_arc] == 0) {
+                        for (arc_bridge::iterator bi = know_paths[base_arc].begin(); bi != know_paths[base_arc].end(); ++bi) {
+                            know_back_paths[wc.arcFromId(bi->first)].replace_evidence(wc.id(base_arc), wc.id(new_arc));
+                        }
+                        know_paths[base_arc].clear();
+                    } else {
+                        for (arc_bridge::iterator bi = know_paths[base_arc].begin(); bi != know_paths[base_arc].end(); ++bi) {
+                            know_back_paths[wc.arcFromId(bi->first)].add_evidence_if(wc.id(base_arc), wc.id(new_arc));
+                        }
+                    }
+                } else {
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("Out Know \n");
+                    #endif
+                    know_back_paths[new_arc].bridges.ref() = know_back_paths[base_arc].bridges.ref(); // deep copy
+                    if (fc[base_arc] == 0) {
+                        for (arc_back_bridge::iterator bi = know_back_paths[base_arc].begin(); bi != know_back_paths[base_arc].end(); ++bi) {
+                            know_paths[wc.arcFromId(*bi)].replace_evidence(wc.id(base_arc), wc.id(new_arc));
+                        }
+                        know_back_paths[base_arc].clear();
+                    } else {
+                         for (arc_back_bridge::iterator bi = know_back_paths[base_arc].begin(); bi != know_back_paths[base_arc].end(); ++bi) {
+                            know_paths[wc.arcFromId(*bi)].add_evidence_if(wc.id(base_arc), wc.id(new_arc));
+                        }
+                    }
+                }
+            } else {
+                #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "Single Single \n");
+                #endif
+                unravel_ILP(*rev_in_groups[lg].begin(), *rev_out_groups[rg].begin(), cap, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
+            }
+             
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("STEP\n"); 
+            digraphWriter(wc, std::cout)
+                        .arcMap("edge_specifier", ces)
+                        .arcMap("edge_type", cet)
+                        .arcMap("fc", fc)
+                        .arcMap("length", cel)
+                        .arcMap("means", mc)
+                        .arcMap("barred", barred)
+                        .run();   
+            for (ListDigraph::ArcIt a(wc); a != INVALID; ++a) {
+
+                logger::Instance()->debug("Arc " + std::to_string(wc.id(a))); 
+                for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
+                    logger::Instance()->debug(" f " + std::to_string(ab->first)); 
+                }
+                for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
+                    logger::Instance()->debug(" b " + std::to_string(*ab)); 
+                }
+                logger::Instance()->debug("\n" );  
+             }
+             #endif
+             
         }
-        
     }
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("After UNRAVEL \n");
-    for (ListDigraph::ArcIt a(wc); a != INVALID; ++a) {
-
-       logger::Instance()->debug("Arc " + std::to_string(wc.id(a))); 
-       for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
-           logger::Instance()->debug(" f " + std::to_string(ab->first)); 
-       }
-       for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
-           logger::Instance()->debug(" b " + std::to_string(*ab)); 
-       }
-       logger::Instance()->debug("\n" );  
-    }
-     #endif
+        logger::Instance()->debug("Add Over and underflow to original edge \n");
+    #endif
     
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_left.begin(); ngi != new_group_nodes_left.end(); ++ngi) {
+        
+        ListDigraph::Node n = ngi->second;
+        
+        float mean = 0;
+        float score = 0;
+        capacity_type weight = 0;
+        capacity_type group_flow = 0;
+        for (ListDigraph::InArcIt a(wc, n); a!=INVALID; ++a) {
+            group_flow += fc[a];
+            if (!barred[a]) {
+                mean += fc[a] * mc[a].mean;
+                score += fc[a] * mc[a].compute_score();
+                weight += fc[a];
+            }
+        }
+        mean = mean / (float) weight;
+        score = score / (float) weight;
+        
+        capacity_type evidenced_flow = 0;
+        for (ListDigraph::OutArcIt a(wc, n); a!=INVALID; ++a) {
+            evidenced_flow += fc[a];
+        }
+        
+        #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("node " + std::to_string(wc.id(n)) + " GroupFlow " +  std::to_string(group_flow) + " EvFlow " +  std::to_string(evidenced_flow)  + "\n");
+        #endif
+        
+        if (group_flow > evidenced_flow) {
+            ListDigraph::Arc new_arc = wc.addArc(n, node);
+            cet[new_arc] = edge_types::RESOLVE_HELPER;
+            fc[new_arc] = group_flow - evidenced_flow;
+            ces[new_arc] = exon_edge(size);
+            
+            float ratio = (float) evidenced_flow / (float) group_flow;
+            mc[new_arc].hidden_score = score * ratio;
+            mc[new_arc].weight = 0;
+            mc[new_arc].mean = mean * ratio;
+        }
+    }
+  
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_right.begin(); ngi != new_group_nodes_right.end(); ++ngi) {
+        
+        ListDigraph::Node n = ngi->second;
+        
+        float mean = 0;
+        float score = 0;
+        capacity_type weight = 0;
+        capacity_type group_flow = 0;
+        for (ListDigraph::OutArcIt a(wc, n); a!=INVALID; ++a) {
+            group_flow += fc[a];
+            if (!barred[a]) {
+                mean += fc[a] * mc[a].mean;
+                score += fc[a] * mc[a].compute_score();
+                weight += fc[a];
+            }
+        }
+        mean = mean / (float) weight;
+        score = score / (float) weight;
+        
+        capacity_type evidenced_flow = 0;
+        for (ListDigraph::InArcIt a(wc, n); a!=INVALID; ++a) {
+            evidenced_flow += fc[a];
+        }
+        
+        #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("node " + std::to_string(wc.id(n)) + " GroupFlow " +  std::to_string(group_flow) + " EvFlow " +  std::to_string(evidenced_flow)  + "\n");
+        #endif
+        
+        if (group_flow > evidenced_flow) {
+            ListDigraph::Arc new_arc = wc.addArc(node, n);
+            cet[new_arc] = edge_types::RESOLVE_HELPER;
+            fc[new_arc] = group_flow - evidenced_flow;
+            ces[new_arc] = exon_edge(size);
+            
+            float ratio = (float) evidenced_flow / (float) group_flow;
+            mc[new_arc].hidden_score = score * ratio;
+            mc[new_arc].weight = 0;
+            mc[new_arc].mean = mean * ratio;
+        }
+    }
+        
+    #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Clean Leftovers New Nodes \n");
+    #endif
+   
+
+    for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
+        int lg = *lg_it;
+        if (rev_in_groups_ev[lg]->block) {
+            for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+                for (arc_bridge::iterator bi = know_paths[wc.arcFromId(*ri)].begin(); bi != know_paths[wc.arcFromId(*ri)].end(); ++bi) {
+                    #ifdef ALLOW_DEBUG
+                        logger::Instance()->debug("Remove " + std::to_string(*ri) + " AT " + std::to_string(bi->first) + "\n");
+                    #endif
+                    know_back_paths[wc.arcFromId(bi->first)].remove_id(*ri);
+                }
+                know_paths[wc.arcFromId(*ri)].clear();
+            }
+        }
+    }
+    for (std::set<int>::iterator rg_it = out_groups.begin(); rg_it != out_groups.end(); ++rg_it) {
+        int rg = *rg_it;
+        if (rev_out_groups_ev[rg]->block) {
+            for (std::set<int>::iterator ri = rev_out_groups[rg].begin(); ri != rev_out_groups[rg].end(); ++ri) {
+                for (arc_back_bridge::iterator bi = know_back_paths[wc.arcFromId(*ri)].begin(); bi != know_back_paths[wc.arcFromId(*ri)].end(); ++bi) {
+                    #ifdef ALLOW_DEBUG
+                        logger::Instance()->debug("Remove " + std::to_string(*ri) + " AT " + std::to_string(*bi) + "\n");
+                    #endif
+                    know_paths[wc.arcFromId(*bi)].remove_id(*ri);
+                }
+                know_back_paths[wc.arcFromId(*ri)].clear();
+            }
+        }
+    }    
+        
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_left.begin(); ngi != new_group_nodes_left.end(); ++ngi) {
+        clean_barred_leftovers(ngi->second, know_paths, know_back_paths, barred, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+    }
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_right.begin(); ngi != new_group_nodes_right.end(); ++ngi) {
+        clean_barred_leftovers(ngi->second, know_paths, know_back_paths, barred, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+    }
+    
+        
     // we now look at possibly unevidenced leftovers
     // remove all 0 edges here
     for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ) {
@@ -7546,7 +8954,31 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
             know_back_paths[arc].clear();
             wc.erase(arc);
         }
-    }
+    }      
+
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("FINISHED ILP\n"); 
+    digraphWriter(wc, std::cout)
+                .arcMap("edge_specifier", ces)
+                .arcMap("edge_type", cet)
+                .arcMap("fc", fc)
+                .arcMap("length", cel)
+                .arcMap("means", mc)
+                .arcMap("barred", barred)
+                .run();   
+    for (ListDigraph::ArcIt a(wc); a != INVALID; ++a) {
+
+        logger::Instance()->debug("Arc " + std::to_string(wc.id(a))); 
+        for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
+            logger::Instance()->debug(" f " + std::to_string(ab->first)); 
+        }
+        for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
+            logger::Instance()->debug(" b " + std::to_string(*ab)); 
+        }
+        logger::Instance()->debug("\n" );  
+     }
+     #endif    
+        
     return max_cap;
 }
 
@@ -7560,34 +8992,34 @@ void base_manager::clean_ILP_leftovers(ListDigraph::Node node,
             ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
             ListDigraph::NodeMap< unsecurity_id> &unsecurityId) {
     
-    int indeg = 0;
-    int outdeg = 0;
-    ListDigraph::InArcIt in(wc, node);
-    ListDigraph::OutArcIt out(wc, node);
-    for (;in != INVALID; ++in) {
-        if (fc[in] < barr_limit) {
+    std::set<int> nodes;
+    nodes.insert(wc.id(node));
+    
+    bool has_left = false;
+    bool has_right = false;
+    
+    for (ListDigraph::InArcIt in(wc, node); in != INVALID; ++in) {
+        if (fc[in] < barr_limit ) { //&& know_paths[in].size() > 0) {
             barred[in] = true;
-            unsecurityArc[in]->insert( transcript_unsecurity( 0, transcript_unsecurity::BARRED));
+            unsecurityArc[in]->insert( transcript_unsecurity( 0, transcript_unsecurity::BARRED));  
         }
-        ++indeg;
+        nodes.insert(wc.id(wc.source(in))); 
     }
-    for (;out != INVALID; ++out) {
-        if (fc[out] < barr_limit) {
+    for (ListDigraph::OutArcIt out(wc, node); out != INVALID; ++out) {
+        if (fc[out] < barr_limit) { //&& know_back_paths[out].size() > 0) {
             barred[out] = true;
             unsecurityArc[out]->insert( transcript_unsecurity( 0, transcript_unsecurity::BARRED));
         }
-        ++outdeg;
+        nodes.insert(wc.id(wc.target(out)));
     }
-    if (indeg == 1 || outdeg == 1) {
-        unravel_unevidenced_leftovers(node, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, &barred);
-        indeg = 0;
-    }
-        
-    if (indeg == 0) {
-        // we completely resolved this one, remove!
+   
+    if (nodes.size() == 1) { 
         wc.erase(node);
     }
-
+    
+    for (std::set<int>::iterator in = nodes.begin(); in != nodes.end(); ++in) { 
+        clean_barred_leftovers(wc.nodeFromId(*in), know_paths, know_back_paths, barred, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+    }
 }
 
 bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
@@ -7647,7 +9079,7 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
             capacity_type additional_flow = std::min(left_over, fc[*a] - *fi);
             left_over -= additional_flow;
             
-       //     logger::Instance()->debug("left " + std::to_string(*fi) + " " + std::to_string(additional_flow) + " on " + std::to_string(fc[*a]) + " " + std::to_string(ratio) +"\n");
+            logger::Instance()->debug("left " + std::to_string(*fi) + " " + std::to_string(additional_flow) + " on " + std::to_string(fc[*a]) + " " + std::to_string(ratio) +"\n");
             
             unravel_ILP(wc.id(left), wc.id(*a), *fi + additional_flow, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
             barred[*a] = true;
@@ -7679,7 +9111,7 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
             capacity_type additional_flow = std::min(left_over, fc[*a] - *fi);
             left_over -= additional_flow;
             
-        //    logger::Instance()->debug("right " + std::to_string(*fi) + " " + std::to_string(additional_flow) + " on " + std::to_string(fc[*a]) + " " + std::to_string(ratio) +"\n");
+            logger::Instance()->debug("right " + std::to_string(*fi) + " " + std::to_string(additional_flow) + " on " + std::to_string(fc[*a]) + " " + std::to_string(ratio) +"\n");
 
             unravel_ILP(wc.id(*a), wc.id(right), *fi + additional_flow, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
             barred[*a] = true;
@@ -7689,6 +9121,28 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
             }
         }
     }
+    
+        #ifdef ALLOW_DEBUG
+    digraphWriter(wc, std::cout)
+                .arcMap("edge_specifier", ces)
+                .arcMap("edge_type", cet)
+                .arcMap("fc", fc)
+                .arcMap("length", cel)
+                .arcMap("means", mc)
+                .arcMap("barred", barred)
+                .run();   
+    for (ListDigraph::ArcIt a(wc); a != INVALID; ++a) {
+
+       logger::Instance()->debug("Arc " + std::to_string(wc.id(a))); 
+       for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
+           logger::Instance()->debug(" f " + std::to_string(ab->first)); 
+       }
+       for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
+           logger::Instance()->debug(" b " + std::to_string(*ab)); 
+       }
+       logger::Instance()->debug("\n" );  
+    }
+     #endif
     
      // we now look at possibly unevidenced leftovers
     // remove all 0 edges here
@@ -7886,21 +9340,462 @@ void base_manager::unravel_ILP(int left, int right, capacity_type cap_evidence,
     logger::Instance()->debug("Exit ILP.\n");
     #endif
 
-                #ifdef ALLOW_DEBUG
-    for (ListDigraph::ArcIt a(wc); a != INVALID; ++a) {
-
-       logger::Instance()->debug("Arc " + std::to_string(wc.id(a))); 
-       for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
-           logger::Instance()->debug(" f " + std::to_string(ab->first)); 
-       }
-       for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
-           logger::Instance()->debug(" b " + std::to_string(*ab)); 
-       }
-       logger::Instance()->debug("\n" );  
-    }
-             #endif
 }
 
+void base_manager::unravel_evidences_groups(ListDigraph::Node node,
+            ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
+            std::map<int, evidence_group> & left_groups, std::map<int, evidence_group> & right_groups, ListDigraph::ArcMap<bool> &barred,
+            ListDigraph &wc,
+            ListDigraph::ArcMap<capacity_type> &fc,  ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<exon_edge> &ces,
+            ListDigraph::ArcMap<edge_types::edge_type> &cet, ListDigraph::ArcMap<edge_length> &cel,
+            ListDigraph::ArcMap<unsigned int> &cycle_id_in, ListDigraph::ArcMap<unsigned int> &cycle_id_out,
+            ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
+            ListDigraph::NodeMap< unsecurity_id> &unsecurityId, ListDigraph::NodeMap<unsigned int> &ni, unsigned int size) {
+    
+    
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Unravel NODE GROUP" + std::to_string(wc.id(node)) + "\n");
+    #endif
+   
+    struct info {
+        
+        info() {}
+        info(int group, bool is_out, capacity_type cap, std::set<int> &s) : group(group), is_out(is_out), cap(cap), know_groups(s) 
+            {}
+        
+        int group;
+        bool is_out = false;
+        capacity_type cap = 0;
+        std::set<int> know_groups;
+    };
+    
+    std::set<int> in_groups, out_groups;
+    std::map<int, std::set<int> > rev_in_groups;
+    std::map<int, std::set<int> > rev_out_groups;
+    std::map<int, evidence_group* > rev_in_groups_ev;
+    std::map<int, evidence_group* > rev_out_groups_ev;
+    
+    for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ++a) {
+        
+        if (cet[a] == edge_types::HELPER) {
+            // no resolving 
+            continue;
+        }
+        
+        int id = wc.id(a);
+        in_groups.insert(left_groups[id].id);
+        rev_in_groups[left_groups[id].id].insert(id);
+        rev_in_groups_ev[left_groups[id].id] = &left_groups[id];
+    }
+
+    for (ListDigraph::OutArcIt a(wc, node); a!=INVALID; ++a) {
+        
+        if (cet[a] == edge_types::HELPER) {
+            // no resolving 
+            continue;
+        }
+        
+        int id = wc.id(a);
+        out_groups.insert(right_groups[id].id);
+        rev_out_groups[right_groups[id].id].insert(id);
+        rev_out_groups_ev[right_groups[id].id] = &right_groups[id];
+    }
+
+    std::deque<info> groups;
+    std::map<int, info* > rev_groups_info;
+    for (std::set<int>::iterator si = in_groups.begin(); si != in_groups.end(); ++si) {
+        capacity_type group_flow = 0;
+        std::set<int> kg;
+        for (std::set<int>::iterator fi = rev_in_groups[*si].begin(); fi != rev_in_groups[*si].end(); ++fi) {
+            group_flow += fc[wc.arcFromId(*fi)];
+            for (arc_bridge::iterator bi = know_paths[wc.arcFromId(*fi)].begin(); bi != know_paths[wc.arcFromId(*fi)].end(); ++bi) {
+                kg.insert(right_groups[bi->first].id);
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("FG " + std::to_string(right_groups[bi->first].id) + "\n");
+                #endif
+            }
+        }
+        
+        #ifdef ALLOW_DEBUG
+         logger::Instance()->debug("FGT " + std::to_string(*si) + " " + std::to_string(group_flow) + "\n");
+        #endif
+
+        groups.push_back(info(*si, false, group_flow, kg));
+        rev_groups_info[*si] = &groups.back();
+    }
+    for (std::set<int>::iterator si = out_groups.begin(); si != out_groups.end(); ++si) {
+        capacity_type group_flow = 0;
+        std::set<int> kg;
+        for (std::set<int>::iterator fi = rev_out_groups[*si].begin(); fi != rev_out_groups[*si].end(); ++fi) {
+            group_flow += fc[wc.arcFromId(*fi)];
+            for (arc_back_bridge::iterator bi = know_back_paths[wc.arcFromId(*fi)].begin(); bi != know_back_paths[wc.arcFromId(*fi)].end(); ++bi) {
+                kg.insert(left_groups[*bi].id);
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("FGB " + std::to_string(left_groups[*bi].id) + "\n");
+                #endif
+            }
+        }
+        
+        #ifdef ALLOW_DEBUG
+         logger::Instance()->debug("FGTB " + std::to_string(*si) + " " + std::to_string(group_flow) + "\n");
+        #endif
+        
+        groups.push_back(info(*si, true, group_flow, kg));
+        rev_groups_info[*si] = &groups.back();
+    }
+
+    std::map<int, ListDigraph::Node > new_group_nodes_left, new_group_nodes_right;
+     
+    bool change = true;
+    while (change) {
+        change = false;
+        // loop over collected
+        
+        info* candidate;
+        capacity_type max = 0;
+        
+        for (std::deque< info>::iterator it = groups.begin(); it != groups.end(); ++it) {
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Group: " + std::to_string(it->group) + "\n");
+            for (std::set<int>::iterator it2 = it->know_groups.begin(); it2 != it->know_groups.end(); ++it2) {
+                logger::Instance()->debug(std::to_string(*it2) + ", ");
+            } 
+            logger::Instance()->debug("\n");
+            #endif
+            
+            if (it->know_groups.size() == 1) {
+                
+                capacity_type min = std::min(it->cap, rev_groups_info[*it->know_groups.begin()]->cap);
+                if (min > max ){
+                    candidate = &*it;
+                    max = min;
+                }
+            }
+        }
+        
+        if (max == 0) break;
+        
+        // we have something to resolve, yay
+        capacity_type cap = max;
+        change = true;
+        int lg, rg, del, del_in;
+       
+        if (candidate->is_out) {
+            rg = candidate->group;
+            del = rg;
+            lg = *candidate->know_groups.begin();
+            del_in = lg;
+        } else {
+            lg = candidate->group;
+            del = lg;
+            rg = *candidate->know_groups.begin();
+            del_in = rg;
+        }
+        candidate->know_groups.clear();
+        candidate->cap -= cap;
+        rev_groups_info[del_in]->know_groups.erase(del);
+        rev_groups_info[del_in]->cap -= cap;
+        
+        if (rev_in_groups_ev[lg]->block && new_group_nodes_left.find(lg) == new_group_nodes_left.end()) {
+            new_group_nodes_left[lg] = wc.addNode();
+            ni[new_group_nodes_left[lg]] = ni[node];
+            unsecurityId[new_group_nodes_left[lg]] = unsecurityId[node];
+            
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Migrate Group " + std::to_string(lg) + " to new Group " + std::to_string(wc.id(new_group_nodes_left[lg])) + "\n");
+            #endif
+            
+            //move over the edges
+            for (std::set<int>::iterator ri = rev_in_groups[lg].begin(); ri != rev_in_groups[lg].end(); ++ri) {
+                wc.changeTarget(wc.arcFromId(*ri), new_group_nodes_left[lg]);
+                
+                for (arc_bridge::iterator bi = know_paths[wc.arcFromId(*ri)].begin(); bi != know_paths[wc.arcFromId(*ri)].end(); ++bi) {
+                    know_back_paths[wc.arcFromId(bi->first)].remove_id(*ri);
+                }
+                know_paths[wc.arcFromId(*ri)].clear();
+            }
+        }
+        
+        if (rev_out_groups_ev[rg]->block && new_group_nodes_right.find(rg) == new_group_nodes_right.end()) {
+            new_group_nodes_right[rg] = wc.addNode();
+            ni[new_group_nodes_right[rg]] = ni[node];
+            unsecurityId[new_group_nodes_right[rg]] = unsecurityId[node];
+            
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Migrate Group " + std::to_string(rg) + " to new Group " + std::to_string(wc.id(new_group_nodes_left[rg])) + "\n");
+            #endif
+            
+            //move over the edges
+            for (std::set<int>::iterator ri = rev_out_groups[rg].begin(); ri != rev_out_groups[rg].end(); ++ri) {
+                wc.changeSource(wc.arcFromId(*ri), new_group_nodes_right[rg]);
+                for (arc_back_bridge::iterator bi = know_back_paths[wc.arcFromId(*ri)].begin(); bi != know_back_paths[wc.arcFromId(*ri)].end(); ++bi) {
+                    know_paths[wc.arcFromId(*bi)].remove_id(*ri);
+                }
+                know_back_paths[wc.arcFromId(*ri)].clear();
+            }
+        }
+ 
+        if (rev_in_groups_ev[lg]->block && rev_out_groups_ev[rg]->block) {
+                
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "Double Block \n");
+            #endif
+            
+            ListDigraph::Arc new_arc = wc.addArc(new_group_nodes_left[lg], new_group_nodes_right[rg]);
+            cet[new_arc] = edge_types::RESOLVE_HELPER;
+            fc[new_arc] = cap;
+            ces[new_arc] = exon_edge(size);
+            
+            float mean_left = 0;
+            float score_left = 0;
+            capacity_type weight_left = 0;
+            for (ListDigraph::InArcIt a(wc, new_group_nodes_left[lg]); a!=INVALID; ++a) {
+                if (!barred[a]) {
+                    mean_left += fc[a] * mc[a].mean;
+                    score_left += fc[a] * mc[a].compute_score();
+                    weight_left += fc[a];
+                }
+            }
+            mean_left = mean_left / (float) weight_left;
+            score_left = score_left / (float) weight_left;
+
+            float mean_right = 0;
+            float score_right = 0;
+            capacity_type weight_right = 0;
+            for (ListDigraph::OutArcIt a(wc, new_group_nodes_right[rg]); a!=INVALID; ++a) {
+                if (!barred[a]) {
+                    mean_right += fc[a] * mc[a].mean;
+                    score_right += fc[a] * mc[a].compute_score();
+                    weight_right += fc[a];
+                }
+            }
+            mean_right = mean_right / (float) weight_right;
+            score_right = score_right / (float) weight_right;
+
+            float mean;
+            float score;
+            capacity_type weight;
+            if (score_left > score_right) {
+                mean = mean_left;
+                score = score_left;
+                weight = weight_left;
+            } else {
+                mean = mean_right;
+                score = score_right;
+                weight = weight_right;
+            }
+
+            float ratio = (float) cap / (float) weight;
+            mc[new_arc].hidden_score = score * ratio;
+            mc[new_arc].weight = 0;
+            mc[new_arc].mean = mean * ratio;
+
+        } else if (rev_in_groups_ev[lg]->block || rev_out_groups_ev[rg]->block) {
+
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "Single Block \n");
+            #endif
+            
+            ListDigraph::Arc base_arc, new_arc;
+
+            if (rev_in_groups_ev[lg]->block) {
+                base_arc = wc.arcFromId(*rev_out_groups[rg].begin());
+                new_arc = wc.addArc(new_group_nodes_left[lg], wc.target(base_arc));
+            } else { // rev_out_groups_ev[rg].block
+                base_arc = wc.arcFromId(*rev_in_groups[lg].begin());
+                new_arc = wc.addArc(wc.source(base_arc), new_group_nodes_right[rg]);
+            }
+
+            // just copy over stuff   
+            ces[new_arc] = ces[base_arc];
+            cet[new_arc] = cet[base_arc];
+            cel[new_arc] = cel[base_arc];
+            fc[new_arc] = cap;
+            mc[new_arc] = mc[base_arc];
+            mc[new_arc].reduce(cap/ float(fc[base_arc]));
+
+            fc[base_arc] -= cap;
+            mc[base_arc].reduce((fc[base_arc] - cap)/ float(fc[base_arc]));
+
+            if (unsecurityArc[base_arc].has_ref()) {
+                std::copy(unsecurityArc[base_arc]->begin(), unsecurityArc[base_arc]->end(), std::inserter(unsecurityArc[new_arc].ref(), unsecurityArc[new_arc]->end()));
+            }
+
+            cycle_id_in[new_arc] = cycle_id_in[base_arc];
+            cycle_id_out[new_arc] = cycle_id_out[base_arc];
+
+            if (rev_in_groups_ev[lg]->block) {
+                know_paths[new_arc].bridges.ref() = know_paths[base_arc].bridges.ref(); // deep copy
+                if (fc[base_arc] == 0) {
+                    for (arc_bridge::iterator bi = know_paths[base_arc].begin(); bi != know_paths[base_arc].end(); ++bi) {
+                        know_back_paths[wc.arcFromId(bi->first)].replace_evidence(wc.id(base_arc), wc.id(new_arc));
+                    }
+                    know_paths[base_arc].clear();
+                } else {
+                    for (arc_bridge::iterator bi = know_paths[base_arc].begin(); bi != know_paths[base_arc].end(); ++bi) {
+                        know_back_paths[wc.arcFromId(bi->first)].add_evidence_if(wc.id(base_arc), wc.id(new_arc));
+                    }
+                }
+            } else {
+                know_back_paths[new_arc].bridges.ref() = know_back_paths[base_arc].bridges.ref(); // deep copy
+                if (fc[base_arc] == 0) {
+                    for (arc_back_bridge::iterator bi = know_back_paths[base_arc].begin(); bi != know_back_paths[base_arc].end(); ++bi) {
+                        know_paths[wc.arcFromId(*bi)].replace_evidence(wc.id(base_arc), wc.id(new_arc));
+                    }
+                    know_back_paths[base_arc].clear();
+                } else {
+                     for (arc_back_bridge::iterator bi = know_back_paths[base_arc].begin(); bi != know_back_paths[base_arc].end(); ++bi) {
+                        know_paths[wc.arcFromId(*bi)].add_evidence_if(wc.id(base_arc), wc.id(new_arc));
+                    }
+                }
+            }
+        } else {
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("LG " + std::to_string(lg) + " RG " + std::to_string(rg) + "Single Single \n");
+            #endif
+            unravel_ILP(*rev_in_groups[lg].begin(), *rev_out_groups[rg].begin(), cap, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
+        }
+    }
+    
+
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_left.begin(); ngi != new_group_nodes_left.end(); ++ngi) {
+        
+        ListDigraph::Node n = ngi->second;
+        
+        float mean = 0;
+        float score = 0;
+        capacity_type weight = 0;
+        capacity_type group_flow = 0;
+        for (ListDigraph::InArcIt a(wc, n); a!=INVALID; ++a) {
+            group_flow += fc[a];
+            if (!barred[a]) {
+                mean += fc[a] * mc[a].mean;
+                score += fc[a] * mc[a].compute_score();
+                weight += fc[a];
+            }
+        }
+        mean = mean / (float) weight;
+        score = score / (float) weight;
+        
+        capacity_type evidenced_flow = 0;
+        for (ListDigraph::OutArcIt a(wc, n); a!=INVALID; ++a) {
+            evidenced_flow += fc[a];
+        }
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Group Node Left " + std::to_string(wc.id(n)) + " GF " + std::to_string(group_flow) + " EF " + std::to_string(evidenced_flow) + "\n");
+        #endif
+
+        if (group_flow > evidenced_flow) {
+            ListDigraph::Arc new_arc = wc.addArc(n, node);
+            cet[new_arc] = edge_types::RESOLVE_HELPER;
+            fc[new_arc] = group_flow - evidenced_flow;
+            ces[new_arc] = exon_edge(size);
+            
+            float ratio = (float) evidenced_flow / (float) group_flow;
+            mc[new_arc].hidden_score = score * ratio;
+            mc[new_arc].weight = 0;
+            mc[new_arc].mean = mean * ratio;
+        }
+    }
+  
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_right.begin(); ngi != new_group_nodes_right.end(); ++ngi) {
+        
+        ListDigraph::Node n = ngi->second;
+        
+        float mean = 0;
+        float score = 0;
+        capacity_type weight = 0;
+        capacity_type group_flow = 0;
+        for (ListDigraph::OutArcIt a(wc, n); a!=INVALID; ++a) {
+            group_flow += fc[a];
+            if (!barred[a]) {
+                mean += fc[a] * mc[a].mean;
+                score += fc[a] * mc[a].compute_score();
+                weight += fc[a];
+            }
+        }
+        mean = mean / (float) weight;
+        score = score / (float) weight;
+        
+        capacity_type evidenced_flow = 0;
+        for (ListDigraph::InArcIt a(wc, n); a!=INVALID; ++a) {
+            evidenced_flow += fc[a];
+        }
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Group Node Left " + std::to_string(wc.id(n)) + " GF " + std::to_string(group_flow) + " EF " + std::to_string(evidenced_flow) + "\n");
+        #endif
+
+        if (group_flow > evidenced_flow) {
+            ListDigraph::Arc new_arc = wc.addArc(node, n);
+            cet[new_arc] = edge_types::RESOLVE_HELPER;
+            fc[new_arc] = group_flow - evidenced_flow;
+            ces[new_arc] = exon_edge(size);
+            
+            float ratio = (float) evidenced_flow / (float) group_flow;
+            mc[new_arc].hidden_score = score * ratio;
+            mc[new_arc].weight = 0;
+            mc[new_arc].mean = mean * ratio;
+        }
+    }
+    
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_left.begin(); ngi != new_group_nodes_left.end(); ++ngi) {
+        clean_barred_leftovers(ngi->second, know_paths, know_back_paths, barred, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+    }
+    for( std::map<int, ListDigraph::Node >::iterator ngi = new_group_nodes_right.begin(); ngi != new_group_nodes_right.end(); ++ngi) {
+        clean_barred_leftovers(ngi->second, know_paths, know_back_paths, barred, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+    }
+    
+    // we now look at possibly unevidenced leftovers
+    // remove all 0 edges here
+    for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ) {
+        ListDigraph::Arc arc(a);
+        ++a;
+        if (fc[arc] == 0) {
+            for (arc_bridge::iterator bi = know_paths[arc].begin(); bi != know_paths[arc].end(); ++bi) {
+                ListDigraph::Arc a = wc.arcFromId(bi->first);
+                know_back_paths[a].remove_id(wc.id(arc));
+                
+            }
+            know_paths[arc].clear();
+            wc.erase(arc);
+        }
+    }
+    for (ListDigraph::OutArcIt a(wc, node); a!=INVALID;) {
+        ListDigraph::Arc arc(a);
+        ++a;
+        if (fc[arc] == 0) {
+            for (arc_back_bridge::iterator bi = know_back_paths[arc].begin(); bi != know_back_paths[arc].end(); ++bi) {
+                ListDigraph::Arc a = wc.arcFromId(*bi);
+                know_paths[a].remove_id(wc.id(arc));
+            }  
+            know_back_paths[arc].clear();
+            wc.erase(arc);
+        }
+    }
+    
+    int indeg = 0;
+    int outdeg = 0;
+    ListDigraph::InArcIt in(wc, node);
+    ListDigraph::OutArcIt out(wc, node);
+    for (;in != INVALID; ++in) {
+        ++indeg;
+    }
+    for (;out != INVALID; ++out) {
+        ++outdeg;
+    }
+    
+    if (indeg == 1 || outdeg == 1) {
+        unravel_unevidenced_leftovers(node, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, NULL);
+        indeg = 0;
+    }
+    if (indeg == 0) {
+        // we completely resolved this one, remove!
+        wc.erase(node);
+    }
+}
 
 void base_manager::unravel_single(ListDigraph::Node node,
             ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
@@ -7912,23 +9807,15 @@ void base_manager::unravel_single(ListDigraph::Node node,
             ListDigraph::NodeMap< unsecurity_id> &unsecurityId) {
     
     int left, right;
-    capacity_type max_val = 0;
-    
     for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ++a) {
-        for (arc_bridge::iterator b = know_paths[a].begin(); b != know_paths[a].end(); ++b) {
-            // we get the connection with the most evidence!
-            if (b->second > max_val ){
-                left = wc.id(a);
-                right = b->first; 
-                max_val = b->second;
-            }
+        if (know_paths[a].size() == 1 && know_back_paths[wc.arcFromId(know_paths[a].begin()->first)].size() == 1 ) {
+        
+            left = wc.id(a);
+            right = know_paths[a].begin()->first; 
+
         }
     }
-    
-    if (max_val == 0) {
-        return;
-    }
-    
+
     unravel_ILP(left, right, std::min(fc[wc.arcFromId(left)], fc[wc.arcFromId(right)]), know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);    
     
     for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ) {
@@ -8707,7 +10594,7 @@ void base_manager::extend_path_left(std::deque<path>& paths, path* p, unsigned i
 	bool first = false;
         for (ListDigraph::InArcIt a(wc, p->last_node) ; a!=INVALID; ++a) {
             
-            if (cet[a] == edge_types::HELPER ||
+            if (cet[a] == edge_types::HELPER || edge_type[a] == edge_types::RESOLVE_HELPER ||
                     (know_paths[a].is_evidenced_path() && !know_paths[a].has_path_evidence(wc.id(p->last_arc))) ) {
                 continue;
             }
@@ -8764,7 +10651,7 @@ void base_manager::extend_path_right(std::deque<path>& paths, path* p, unsigned 
             
 //            logger::Instance()->debug("Test Arc " + std::to_string(wc.id(a))+ "\n");
             
-            if (cet[a] == edge_types::HELPER ||
+            if (cet[a] == edge_types::HELPER || edge_type[a] == edge_types::RESOLVE_HELPER ||
                   (know_paths[p->last_arc].is_evidenced_path() && !know_paths[p->last_arc].has_path_evidence(wc.id(a))) ) {
 	       continue;
             }

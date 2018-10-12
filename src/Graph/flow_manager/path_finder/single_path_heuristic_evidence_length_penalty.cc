@@ -36,28 +36,18 @@ single_path_heuristic_evidence_length_penalty::~single_path_heuristic_evidence_l
 void single_path_heuristic_evidence_length_penalty::extract_transcripts(alternative_transcript_collection& results) {
     
     while (true) {
+
+        logger::Instance()->debug("Extract Path\n");
+        digraphWriter(wc, std::cout)
+                .arcMap("edge_specifier", ces)
+                .arcMap("edge_type", cet)
+                .arcMap("flow", cfc)
+                .arcMap("length", cel)
+                .arcMap("means", mc)
+                .node("source", s)
+                .node("drain", t)
+                .run();  
         
-//       logger::Instance()->debug("Extract Path\n");
-//       digraphWriter(wc, std::cout)
-//            .arcMap("edge_specifier", ces)
-//            .arcMap("edge_type", cet)
-//            .arcMap("flow", cfc)
-//            .arcMap("length", cel)
-//            .node("source", s)
-//            .node("drain", t)
-//            .run();  
-        
-//        logger::Instance()->debug("Extract Path\n");
-//        digraphWriter(wc, std::cout)
-//                .arcMap("edge_specifier", ces)
-//                .arcMap("edge_type", cet)
-//                .arcMap("flow", cfc)
-//                .arcMap("length", cel)
-//                .arcMap("means", mc)
-//                .node("source", s)
-//                .node("drain", t)
-//                .run();  
-//        
         ListDigraph::ArcIt has_arc(wc);
         if ( has_arc == INVALID ) {
             // no more arcs left in the graph, we are at the end!  
@@ -156,6 +146,7 @@ void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<List
             unsigned int penalty = max_penalty;
             rpos length = 0;
             ListDigraph::Arc max_arc;
+            bool gbarred = false;
             
             for (dyn_paths::iterator p_it = min_max[i].begin(); p_it != min_max[i].end(); ++p_it) {
                 
@@ -167,6 +158,14 @@ void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<List
 //                    logger::Instance()->debug("Skip \n");
                     continue; // skip this one
                 }
+                
+                bool barred = false;
+                for(std::set<transcript_unsecurity>::iterator u_it = unsecurityArc[a].ref().begin(); u_it !=  unsecurityArc[a].ref().end() ; ++u_it) {
+                    if (u_it->evidenced == transcript_unsecurity::BARRED) {
+                        barred = true;
+                    }
+                }
+                
                 
                 unsigned int added_penalty = 0;
                 if (!kp[arc].is_evidenced_path()) {
@@ -181,10 +180,11 @@ void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<List
                 logger::Instance()->debug("Added " + std::to_string(added_length) + " " + std::to_string(added_penalty) + "\n");
                 logger::Instance()->debug("TestMax " + std::to_string(p_it->second.length+added_length) + " " + std::to_string(p_it->second.penalty + added_penalty) + " " + std::to_string(p_it->second.cap) + "\n");
                 
-                if (p_it->second.length + added_length > length
+                if (( (gbarred && !barred)
+                    || p_it->second.length + added_length > length
                     || (p_it->second.length + added_length == length && p_it->second.penalty + added_penalty < penalty)
                     || (p_it->second.length + added_length == length && p_it->second.penalty + added_penalty == penalty && p_it->second.cap > max)    
-                   ) {
+                   ) && (!barred || max == 0)) {
                     max = p_it->second.cap;
                     max_arc = arc;
                     penalty = p_it->second.penalty + added_penalty;

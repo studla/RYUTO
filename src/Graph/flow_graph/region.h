@@ -42,6 +42,7 @@ public:
     rcount get_max();
     rcount get_min();
     float get_average();
+    float get_deviation();
     rcount get_pos_max(rpos length);
     rcount get_pos_max_reverse(rpos length);
     rcount get_right();

@@ -1745,7 +1745,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             logger::Instance()->debug("Test Split " + std::to_string(n1) + " " + std::to_string(n2) + " " + std::to_string((n1 - n2) * 100 / float(n2))+ "\n");
             #endif
             
-            if (n2 < options::Instance()->get_low_edge_mark() + 1 && n1 >= options::Instance()->get_low_edge_mark() + 1) {
+            if (n2 <= options::Instance()->get_low_edge_mark() && n1 >= options::Instance()->get_low_edge_mark() + 1) {
                 force_split.insert(index);
             }
             
@@ -1852,7 +1852,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
         logger::Instance()->debug("Node Force Test " + std::to_string(g.id(n)) + " " + std::to_string(n1) + " " + std::to_string(n2) + "\n");
         #endif
         
-        if (has_left && has_right && n2 < options::Instance()->get_low_edge_mark()+1 && n1 >= options::Instance()->get_low_edge_mark()+1) {
+        if (has_left && has_right && n2 <= options::Instance()->get_low_edge_mark() && n1 >= options::Instance()->get_low_edge_mark()+1) {
            
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Force " + std::to_string(index) + "\n");
@@ -3012,6 +3012,7 @@ void base_manager::add_single_exons() {
         transcripts.transcripts.back()->found_edge.set(it->meta, true);
         transcripts.transcripts.back()->flow = it->capacity;
         transcripts.transcripts.back()->mean = it->capacity;
+        transcripts.transcripts.back()->score = it->capacity;
         transcripts.transcripts.back()->guided = it->guide;
     }
 }

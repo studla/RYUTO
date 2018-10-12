@@ -14,7 +14,7 @@ namespace edge_types
 {
     
     enum edge_type : uint8_t { 
-        BASE_TYPE, EXON, NODE, BACKLINK,  HELPER
+        BASE_TYPE, EXON, NODE, BACKLINK, RESOLVE_HELPER, HELPER
     };
     
 }

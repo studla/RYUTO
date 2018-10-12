@@ -133,6 +133,7 @@ void alternative_transcript_collection::filter_transcripts() {
         capacity_type uniform_max = 0;
         float mean_max = 0;
         float score_max = 0;
+//        std::deque<float> all_scores;
 
         for (graph_list<lazy<transcript> >::iterator it = regional.begin(); it!= regional.end(); ++it) {
             if (it->ref().flow > uniform_max) {
@@ -145,8 +146,15 @@ void alternative_transcript_collection::filter_transcripts() {
             if (sco > score_max) {
                 score_max = sco;
             }
+            
+//            all_scores.push_back(sco);
         }
-         
+        
+//        std::sort(all_scores.begin(), all_scores.end());
+//        float score_median = 0;
+//        if (!all_scores.empty()) score_median = all_scores[all_scores.size()/2];
+        
+        
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Base_values " + std::to_string(uniform_max) + " " + std::to_string(mean_max) + ".\n");
         #endif
@@ -193,6 +201,7 @@ void alternative_transcript_collection::filter_transcripts() {
 //                      || 
 //                      (!highlander_mode) )
                     it->ref().mean >= mean_max * options::Instance()->get_percentage_filter() / 100.0
+     //               && ( it->ref().score > 8 || it->ref().score > score_median * 0.1 )
 //                    && it->ref().flow > options::Instance()->get_capacity_filter()
                     && (it->ref().mean > options::Instance()->get_mean_filter() || it->ref().score > options::Instance()->get_mean_filter())
                     && it->ref().score > options::Instance()->get_minimal_score()
@@ -201,6 +210,7 @@ void alternative_transcript_collection::filter_transcripts() {
                     && length >= (options::Instance()->get_min_transcript_length_base() + options::Instance()->get_min_transcript_length_extension() * exon_count)    //
                     && !unevidenced
                     && !barred
+                    && (exon_count > 1 || it->ref().mean > options::Instance()->get_min_single_coverage())
                     )) {
                          #ifdef ALLOW_DEBUG
                         logger::Instance()->debug("keep\n");
@@ -245,5 +255,39 @@ void alternative_transcript_collection::filter_transcripts() {
         }
     }
     
+    std::sort(keep.begin(), keep.end(), []( lazy<transcript> a, lazy<transcript> b) -> bool {return (a->exons.begin()->first == b->exons.begin()->first && a->exons.back().second < b->exons.back().second) || a->exons.begin()->first < b->exons.begin()->first;});
+//
+//    for (graph_list<lazy<transcript> >::iterator i = keep.begin(); i!= keep.end();) {  // all transcripts
+//        
+//        if ((*i)->guided) {
+//            continue;
+//        }
+//        
+//        unsigned int min_dist = 50;
+//        graph_list<lazy<transcript> >::iterator min = keep.end();
+//        for (graph_list<lazy<transcript> >::iterator j = keep.begin(); j != keep.end() && (*j)->exons.front().first < (*i)->exons.front().first; ++j) {
+//           
+//            if ((*j)->exons.back().second > (*i)->exons.front().first) {
+//                continue;
+//            }
+//            
+//            unsigned int d = (*i)->exons.front().first - (*j)->exons.back().second < min_dist;
+//            if (d < min_dist) {
+//                min_dist = d;
+//                min = j;
+//            }
+//        }
+//        
+//        if (min != keep.end() && (*min)->guided && ( (*min)->exons.size() < 2 || (*i)->exons.size() < 2 ) ) {
+//            // join
+//            
+//            (*min)->join(&(*i).ref());
+//            
+//            i = keep.erase(i);
+//        } else {
+//            ++i;
+//        }
+//    }
+
     transcripts = keep; 
 }

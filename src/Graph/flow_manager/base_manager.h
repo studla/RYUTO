@@ -170,14 +170,13 @@ protected:
     };
     
     struct component {
-        component() : edges(0), in_nodes(0), out_nodes(0), only_single(false) {   
+        component() : edges(0), in_nodes(0), out_nodes(0) {   
         };
         unsigned int edges;
         unsigned int in_nodes;
         unsigned int out_nodes ;
         std::set<int> nodes;
         std::deque< resolve_count_set > fragments;
-        bool only_single;
     };
     
     struct classify_component {
@@ -189,12 +188,21 @@ protected:
         unsigned int assigned_in;
         unsigned int assigned_out;
         unsigned int assigned_edges;
+        unsigned int edge_group_offset;
+        unsigned int node_group_offset;
         unsigned int fully_connected_in;
         unsigned int fully_connected_out;
         unsigned int fully_connected_edges;
         std::deque<component> components;
     };
     
+    struct evidence_group {
+        evidence_group() : id(-1), block(false) {};
+        evidence_group(int i, bool b) : id(i), block(b) {};
+        
+        int id;
+        bool block; // always set if multiple edges in this group
+    };
     
     void find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths); 
     
@@ -209,8 +217,14 @@ protected:
     
     void prune_sources_and_drains_adjacent_starts(ListDigraph::ArcMap<bool> &guided_saves);
 
-    void prune_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &push_block);
-    void shorten_boundaries_scallop_like(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &push_block);
+    void remove_too_short_source_drain(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);
+    bool remove_small_low_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);
+    bool erase_low_deviation_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);
+    bool erase_low_boundary_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);
+    bool prune_small_junctions(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);
+    bool threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t, float low_mark);
+
+    capacity_type DKMeans( std::vector<capacity_type> &in);
     
     rcount get_forward_median(std::deque<ListDigraph::Node>::iterator &start, std::deque<ListDigraph::Node>::iterator &end,
         ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &push_block, ListDigraph::ArcMap<bool> &marked_drain);
@@ -241,6 +255,8 @@ protected:
     void push_potential_backward(ListDigraph::ArcMap<rcount> &cp_fwd, std::deque<ListDigraph::Node> &top_order, ListDigraph::ArcMap<rcount> &average_push, ListDigraph::ArcMap<bool> &push_block);
     void push_potential_forward_alt(ListDigraph::ArcMap<rcount> &cp_fwd, std::deque<ListDigraph::Node> &top_order, ListDigraph::ArcMap<rcount> &average_push, ListDigraph::ArcMap<bool> &push_block);
     void push_potential_backward_alt(ListDigraph::ArcMap<rcount> &cp_fwd, std::deque<ListDigraph::Node> &top_order, ListDigraph::ArcMap<rcount> &average_push, ListDigraph::ArcMap<bool> &push_block);
+    float rec_score_forward(ListDigraph::Arc a);
+    float rec_score_backward(ListDigraph::Arc a);
     void count_drains_in_distance(ListDigraph::Node p, rpos average_fragment_length, unsigned int &count, unsigned int &calls);
     void count_sources_in_distance(ListDigraph::Node p, rpos average_fragment_length, unsigned int &count, unsigned int &calls);
     void find_over_capacitated_start(ListDigraph::Node p, ListDigraph::ArcMap<rcount> &cp_fwd, std::set<ListDigraph::Node> &nodes);
@@ -288,7 +304,7 @@ protected:
         ListDigraph& wc, ListDigraph::ArcMap<exon_edge>& ces, ListDigraph::ArcMap<edge_types::edge_type> &cet,
 	ListDigraph::NodeMap<unsigned int>& cni, ListDigraph::ArcMap<arc_bridge> &know_paths);
     
-    void compute_edge_groups(std::deque<std::set<int> > &hits, std::deque<std::set<int> > &groups);
+    void compute_edge_groups(std::set<std::set<int> > &hits, std::deque<std::set<int> > &groups);
     
     void resolve_overarching(path_evidence_map<int, path_evidence > &evidences, 
             path_evidence_set<int> &pre_path_match, path_evidence_set<int> &post_path_match,
@@ -322,8 +338,19 @@ public:
             ListDigraph::NodeMap< unsecurity_id > &unsecurityId,
             ListDigraph::NodeMap<bool>* resolved);
     
+    static void unravel_evidences_groups(ListDigraph::Node node,
+            ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
+            std::map<int, evidence_group> & left_groups, std::map<int, evidence_group> & right_groups, ListDigraph::ArcMap<bool> &barred,
+            ListDigraph &wc,
+            ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<exon_edge> &ces,
+            ListDigraph::ArcMap<edge_types::edge_type> &cet, ListDigraph::ArcMap<edge_length> &cel,
+            ListDigraph::ArcMap<unsigned int> &cycle_id_in, ListDigraph::ArcMap<unsigned int> &cycle_id_out,
+            ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
+            ListDigraph::NodeMap< unsecurity_id > &unsecurityId,  ListDigraph::NodeMap<unsigned int> &ni, unsigned int size);
+    
     static capacity_type unravel_evidences_ILP(ListDigraph::Node node,
             ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
+            std::map<int, evidence_group> & left_groups, std::map<int, evidence_group> & right_groups, ListDigraph::ArcMap<bool> &barred,
             std::deque< resolve_count_set > &hit_counter_all,
             std::set<int> &component,
             ListDigraph &wc,
@@ -331,7 +358,7 @@ public:
             ListDigraph::ArcMap<edge_types::edge_type> &cet, ListDigraph::ArcMap<edge_length> &cel,
             ListDigraph::ArcMap<unsigned int> &cycle_id_in, ListDigraph::ArcMap<unsigned int> &cycle_id_out,
             ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
-            ListDigraph::NodeMap< unsecurity_id> &unsecurityId);
+            ListDigraph::NodeMap< unsecurity_id> &unsecurityId, ListDigraph::NodeMap<unsigned int> &ni, unsigned int size);
     static void clean_ILP_leftovers(ListDigraph::Node node,
             ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
             ListDigraph::ArcMap<bool> &barred, capacity_type barr_limit,
@@ -368,7 +395,10 @@ public:
             ListDigraph::NodeMap< unsecurity_id> &unsecurityId);
     static void insert_local_known(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<arc_bridge> &temp_know_paths, ListDigraph::ArcMap<arc_back_bridge> &temp_know_back_paths,
             ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths);
+    static void add_local_known(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<arc_bridge> &temp_know_paths, ListDigraph::ArcMap<arc_back_bridge> &temp_know_back_paths,
+            ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths);
     static bool bar_smallest_edge(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<bool> &barred, float ratio, ListDigraph::Arc &barc, float &value, std::unordered_set<int> &block_delete);
+    static bool bar_negligible_edge(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<bool> &barred, float ratio, ListDigraph::Arc &barc, float &value, std::unordered_set<int> &block_delete);
     static bool bar_smallest_edge_by_group(ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, std::set<int> &group, float ratio, ListDigraph::Arc &barc, float &value);
 
     

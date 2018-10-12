@@ -10,7 +10,7 @@
 #include <math.h>
 #include <deque>
 
-capacity_mean::capacity_mean() : mean(0), weight(0) {
+capacity_mean::capacity_mean() : mean(0), hidden_score(0), weight(0) {
 }
 
 capacity_mean::capacity_mean(float m, rpos w) : mean(m), weight(w) {
@@ -36,13 +36,22 @@ void capacity_mean::reduce(float percentage) {
 
 float capacity_mean::compute_score() {
     
+//    logger::Instance()->debug("Compute Score \n");
+    
     if (scores.empty()) {
-        return 0;
+        return hidden_score;
     }
  
     std::deque<float> sc = scores;
     
     while(sc.size() > 1) {
+        
+//        logger::Instance()->debug("SC ");
+//        for(std::deque<float>::iterator it = sc.begin(); it != sc.end(); ++it) {
+//            logger::Instance()->debug(std::to_string(*it) + ", ");
+//        }
+//        logger::Instance()->debug("\n");
+        
         float ratio = 0;
         std::deque<float>::iterator p1, p2;
         
@@ -66,6 +75,8 @@ float capacity_mean::compute_score() {
                 p2 = si2;
             }
         }
+        
+//        logger::Instance()->debug("Combine " + std::to_string(*p1) + " " + std::to_string(*p2) + "\n");
         
         *p1 = sqrt(*p1 * *p2);
         sc.erase(p2);

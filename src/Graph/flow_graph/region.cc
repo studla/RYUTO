@@ -69,6 +69,28 @@ float region::get_average() {
     return coverage;
 }
 
+float region::get_deviation() {
+    
+    rpos total_len = 0;
+    for (std::deque<subregion>::iterator it = subregions.begin(); it != subregions.end(); ++it) {
+        total_len += it->end - it->start +1;
+    }
+    float avr = 0;
+    for (std::deque<subregion>::iterator it = subregions.begin(); it != subregions.end(); ++it) {
+        avr += it->basecount / float(total_len);
+    }
+   
+    float dev = 0;
+    unsigned int count = 0;
+    for (std::deque<subregion>::iterator it = subregions.begin(); it != subregions.end(); ++it) {
+        
+        dev += ((float) it->start_count - avr) * ((float) it->start_count - avr)  + ((float) it->end_count - avr) * ((float) it->end_count - avr);
+        count += 2;
+    }
+   
+    dev = sqrt(dev / count);
+    return dev;
+}
 
 rcount region::get_base_count() {
     

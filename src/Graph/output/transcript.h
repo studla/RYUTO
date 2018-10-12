@@ -23,6 +23,8 @@ public:
     
     void finalize_borders(exon_meta* meta);
     
+    void join(transcript *o);
+    
     exon_edge found_edge;
 
     capacity_type flow;

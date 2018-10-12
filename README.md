@@ -4,7 +4,7 @@ Ryuto is a tool for exact and fast transcript assembly and quantification, using
 
 # Installation
 Download the source code from:
-[TODO URL]
+[https://github.com/studla/RYUTO]
 
 The following additional libraries need to installed in order to run Ryuto:
 boost

@@ -230,8 +230,8 @@ AUTOCONF = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing autocon
 AUTOHEADER = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing autoheader
 AUTOMAKE = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing automake-1.15
 AWK = gawk
-BOOST_CPPFLAGS = -I/usr/include
-BOOST_LDFLAGS = -L/usr/lib64 -Wl,-rpath,/usr/lib64
+BOOST_CPPFLAGS = -I/homes/biertruck/thomas/Libraries//include
+BOOST_LDFLAGS = -L/homes/biertruck/thomas/Libraries//lib -Wl,-rpath,/homes/biertruck/thomas/Libraries//lib
 BOOST_PROGRAM_OPTIONS_LIB = -lboost_program_options
 CC = gcc
 CCDEPMODE = depmode=gcc3

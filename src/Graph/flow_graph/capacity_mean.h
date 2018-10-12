@@ -26,6 +26,7 @@ public:
         
         float mean;
         std::deque<float> scores;
+        float hidden_score;
         rpos weight;
                 
 private:

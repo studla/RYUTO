@@ -608,6 +608,7 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
         
         uint32_t* cigar = bam_get_cigar(read);
         bool long_intron = false;
+        bool too_small = false;
         for(int i = 0; i < read->core.n_cigar; i++) {
             const int op = bam_cigar_op(cigar[i]);
             const int ol = bam_cigar_oplen(cigar[i]);
@@ -617,8 +618,12 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
                 long_intron = true;
                 break;
             }
+            if (op == BAM_CMATCH && i != 0 && i != read->core.n_cigar - 1 && ol < 3) {
+                too_small = true;
+                break;
+            }
         }
-        if(long_intron) {
+        if(long_intron || too_small) {
             continue;
         }
         
@@ -1141,7 +1146,7 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
      
     // the starts and ends should reflect the the clustered starts and ends!
     solidify_raw_exons_ends(chrom, raw, clustered_starts, clustered_ends);
-    if (!conn->guided && options::Instance()->is_trimming()) trim_exons_1(chrom, raw, clustered_starts, clustered_ends);
+//    if (!conn->guided && options::Instance()->is_trimming()) trim_exons_1(chrom, raw, clustered_starts, clustered_ends);
     if (!conn->guided && options::Instance()->is_trimming()) trim_exons_2(chrom, raw, clustered_starts, clustered_ends);
     
     // combine them with others
@@ -1750,7 +1755,7 @@ void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rp
             }
             
             count += it->parent->count; // increase count for current interval
-            if (start_count == 0) start_count = count;
+            if (it->left <= sr_it->start) start_count += count;
             end_queue.push( std::make_pair((it)->right, it->parent->count) );
             
             while ((it)->left > end_queue.top().first + 1) {
@@ -1795,7 +1800,7 @@ void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rp
         
         greader_list<std::pair<rpos, rpos> > pre_out;
 
-        unsigned int minimal_report = 50;
+        unsigned int minimal_report = 40;
         unsigned int cut_length = 100;
         
         count = 0;
@@ -1902,24 +1907,24 @@ void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rp
                 }
             }
         } else {
-            if (sr_it->start == pre_out.front().first && sr_it->end == pre_out.back().second
-                    && pre_out.back().second - pre_out.back().first + 1 >= cut_length 
-                    && pre_out.front().second - pre_out.front().first + 1 >= cut_length
-                    && pre_out.back().first - pre_out.front().second +1 >= cut_length
-                    && get_max_region(chrom, pre_out.front().first, pre_out.front().second) > 50
-                    && get_max_region(chrom, pre_out.back().first, pre_out.back().second) > 50) {
-                   // && test_decreasing(chrom, pre_out.front().first, pre_out.front().second)
-                   // && test_increasing(chrom, pre_out.back().first, pre_out.back().second)) {
-                   // && sr_it->fixed_end && sr_it->fixed_start) {
-             
-                sr_it = split_raw.insert(sr_it, exon(sr_it->start, pre_out.front().second));
-                ++sr_it;
-                sr_it->start = pre_out.back().first;
-                modified = true;
-                #ifdef ALLOW_DEBUG
-                        logger::Instance()->debug("Double Trimmed.\n");
-                #endif
-            }
+//            if (sr_it->start == pre_out.front().first && sr_it->end == pre_out.back().second
+//                    && pre_out.back().second - pre_out.back().first + 1 >= cut_length 
+//                    && pre_out.front().second - pre_out.front().first + 1 >= cut_length
+//                    && pre_out.back().first - pre_out.front().second +1 >= cut_length
+//                    && get_max_region(chrom, pre_out.front().first, pre_out.front().second) > 50
+//                    && get_max_region(chrom, pre_out.back().first, pre_out.back().second) > 50) {
+//                   // && test_decreasing(chrom, pre_out.front().first, pre_out.front().second)
+//                   // && test_increasing(chrom, pre_out.back().first, pre_out.back().second)) {
+//                   // && sr_it->fixed_end && sr_it->fixed_start) {
+//             
+//                sr_it = split_raw.insert(sr_it, exon(sr_it->start, pre_out.front().second));
+//                ++sr_it;
+//                sr_it->start = pre_out.back().first;
+//                modified = true;
+//                #ifdef ALLOW_DEBUG
+//                        logger::Instance()->debug("Double Trimmed.\n");
+//                #endif
+//            }
         }
     }
     
