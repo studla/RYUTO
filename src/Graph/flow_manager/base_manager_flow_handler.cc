@@ -3199,8 +3199,10 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
                     
                     float cap = means[o].mean;
 
+                    #ifdef ALLOW_DEBUG
                     logger::Instance()->debug("Cap " + std::to_string(g.id(o)) + " " + std::to_string(cap) +".\n");
-                    
+                    #endif
+
                     if (cap > max_count || !has_max) {
                         max_arc_all.clear();
                         max_arc_all.push_back(o);
@@ -7730,8 +7732,10 @@ bool base_manager::bar_negligible_edge(ListDigraph::Node node, ListDigraph &wc, 
 
         float score = mc[a].compute_score();
         
+        #ifdef ALLOW_DEBUG
         logger::Instance()->debug("RA " + std::to_string(wc.id(a)) + " " + std::to_string(score) + " " + std::to_string(block_delete.find(wc.id(a)) == block_delete.end()) + "\n");
-
+        #endif
+        
         if (score > max_right) {
             max_right = score;
         }
@@ -8264,6 +8268,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
     // now vamp up the evidences to match!
     for (std::deque< resolve_count_set >::iterator ha = hit_counter_all.begin(); ha != hit_counter_all.end(); ++ha) {
         
+        #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Previous " + std::to_string(ha->count) + "\n");
         logger::Instance()->debug("Left: ");
         for (std::set<int>::iterator it = ha->left.begin(); it != ha->left.end(); ++it) {
@@ -8275,9 +8280,13 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
             logger::Instance()->debug(std::to_string(*it) + ", ");
         }
         logger::Instance()->debug("\n");
+        #endif
+
         ha->count = ha->count * flow_reference/ (float) flow_evidence;
         
+        #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Correct to " + std::to_string(ha->count) + "\n");
+        #endif
     }
     
     Lp lp;
@@ -8295,8 +8304,10 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node,
             int lg = left_groups[wc.id(left)].id;
             int rg = right_groups[wc.id(right)].id;
             
+            #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Bi " + std::to_string(wc.id(left)) + " " + std::to_string(wc.id(right)) + " : " + std::to_string(lg) + " " + std::to_string(rg) + "\n");
-            
+             #endif
+
             if ( bi_edges.find(std::make_pair(lg, rg)) != bi_edges.end() ) {
                 continue; // only set up this variable once
             }
@@ -9032,7 +9043,9 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
             ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
             ListDigraph::NodeMap< unsecurity_id> &unsecurityId) {
     
+    #ifdef ALLOW_DEBUG
     logger::Instance()->debug("clean barred leftovers\n");
+    #endif
     
     std::deque<ListDigraph::Arc> inArc, outArc;
     capacity_type in_flow = 0;
@@ -9079,7 +9092,9 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
             capacity_type additional_flow = std::min(left_over, fc[*a] - *fi);
             left_over -= additional_flow;
             
+            #ifdef ALLOW_DEBUG
             logger::Instance()->debug("left " + std::to_string(*fi) + " " + std::to_string(additional_flow) + " on " + std::to_string(fc[*a]) + " " + std::to_string(ratio) +"\n");
+            #endif
             
             unravel_ILP(wc.id(left), wc.id(*a), *fi + additional_flow, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
             barred[*a] = true;
@@ -9111,8 +9126,10 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
             capacity_type additional_flow = std::min(left_over, fc[*a] - *fi);
             left_over -= additional_flow;
             
+            #ifdef ALLOW_DEBUG
             logger::Instance()->debug("right " + std::to_string(*fi) + " " + std::to_string(additional_flow) + " on " + std::to_string(fc[*a]) + " " + std::to_string(ratio) +"\n");
-
+            #endif
+            
             unravel_ILP(wc.id(*a), wc.id(right), *fi + additional_flow, know_paths, know_back_paths, wc, fc, mc, ces, cet, cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
             barred[*a] = true;
             unsecurityArc[*a]->insert( transcript_unsecurity( 0, transcript_unsecurity::BARRED));
@@ -9239,20 +9256,26 @@ void base_manager::unravel_ILP(int left, int right, capacity_type cap_evidence,
     capacity_mean c1 = mc[left_arc];
     capacity_mean c2 = mc[right_arc];
     
+    #ifdef ALLOW_DEBUG
     logger::Instance()->debug(c1.to_string()+ "\n");
     logger::Instance()->debug(c2.to_string()+ "\n");
+    #endif
     
     c1.reduce(cap_evidence/ float(fc[left_arc]));
     c2.reduce(cap_evidence/ float(fc[right_arc]));
     
+    #ifdef ALLOW_DEBUG
     logger::Instance()->debug(c1.to_string()+ "\n");
     logger::Instance()->debug(c2.to_string()+ "\n");
+    #endif
     
     mc[left_arc].reduce((fc[left_arc] - cap_evidence)/ float(fc[left_arc]));
     mc[right_arc].reduce((fc[right_arc] - cap_evidence)/ float(fc[right_arc]));
     c1.update(c2);
     
+    #ifdef ALLOW_DEBUG
     logger::Instance()->debug(c1.to_string()+ "\n");
+    #endif
     
     fc[left_arc] -= cap_evidence;
     fc[right_arc] -= cap_evidence;

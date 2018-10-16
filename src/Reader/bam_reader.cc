@@ -1000,12 +1000,12 @@ rread* bam_reader::parse_read( bam1_t *bread,  chromosome* chrom, greader_list<i
     
     // this is over filtering
     bool no_start = false;
-    if (junctions.front().right - junctions.front().left + 1 < options::Instance()->get_min_junction_anchor()) {
+    if (junctions.front().right - junctions.front().left + 1 < options::Instance()->get_min_junction_anchor() && junctions.size() > 1) {
         no_start = true;
         splices.pop_front();
     }
     bool no_end = false;
-    if (junctions.back().right - junctions.back().left + 1 < options::Instance()->get_min_junction_anchor()) {
+    if (junctions.back().right - junctions.back().left + 1 < options::Instance()->get_min_junction_anchor() && junctions.size() > 1) {
         no_end = true;
         if (!splices.empty()) splices.pop_back();
     }
