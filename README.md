@@ -2,7 +2,7 @@
 Ryuto is a tool for exact and fast transcript assembly and quantification, using network flows and a novel extension of splice-graphs.
 
 # Testing
-The alignments used for testing can be found downloaded here: [real datasets](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments.tar.gz) and [simulated datsets](http://bioinf.itmat.upenn.edu/BEERS/bp2/)
+The alignments used for testing can be downloaded here: [real datasets](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments.tar.gz) and [simulated datsets](http://bioinf.itmat.upenn.edu/BEERS/bp2/)
 
 # Installation
 Download the source code from: https://github.com/studla/RYUTO
