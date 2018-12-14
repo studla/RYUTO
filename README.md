@@ -34,7 +34,8 @@ If installed to a non-standard path, add with --with-htslib for configure.
 Download and install clp from https://projects.coin-or.org/Clp
 
 If installed to a non-standard path, add with --with-clp for configure.
-In this case you will also need to add -DLEMON_DEFAULT_LP=CLP -DCOIN_ROOT_DIR=custom_path
+In this case you will also need to add -DLEMON_DEFAULT_LP=CLP -DCOIN_ROOT_DIR=custom_path 
+to the cmake configure of lemon.
 
 ## 4. Install Lemon
 
