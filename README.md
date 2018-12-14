@@ -17,38 +17,38 @@ Compile with:
 ./configure [options]
 make
 
-## Install Boost
+## 1. Install Boost
 
 Download and install boost from http://www.boost.org.
 
 If installed to a non-standard path, add with --with-boost for configure.
 
-## Install htslib
+## 2. Install htslib
 
 Download and install htslib from https://github.com/samtools/htslib
 
 If installed to a non-standard path, add with --with-htslib for configure.
 
-## Install Lemon
+## 3. Install Clp
+
+Download and install clp from https://projects.coin-or.org/Clp
+
+If installed to a non-standard path, add with --with-clp for configure.
+In this case you will also need to add -DLEMON_DEFAULT_LP=CLP -DCOIN_ROOT_DIR=custom_path
+
+## 4. Install Lemon
 
 Download and install lemon from http://lemon.cs.elte.hu/trac/lemon
 
 If installed to a non-standard path, add with --with-lemon for configure.
 
-## Install Clp
-
-Download and install clp from https://projects.coin-or.org/Clp
-
-If installed to a non-standard path, add with --with-clp for configure.
-
-## ZLIB
+## 5. ZLIB
 
 You may specify a non-standard zlib installation with --with-zlib or disable it with --without-zlib .
 
-## OpenMP
+## 6. OpenMP
 
 OpenMP is used for parallelization and needs to be installed in order for this feature to work.
-
 
 
 
