@@ -25,7 +25,7 @@ sudo dnf install gcc-c++
 ```
 
 # Installation
-Download the newest source code from:https://github.com/studla/RYUTO
+Download the newest source code from: https://github.com/studla/RYUTO
 
 The following additional libraries need to installed in order to run Ryuto:
 zlib
@@ -35,8 +35,8 @@ htslib
 clp
 lemon
 
+Compile Ryuto with:
 ```
-Compile with:
 ./configure [options]
 make
 ```
