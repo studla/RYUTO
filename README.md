@@ -1,23 +1,46 @@
 # Overview
 Ryuto is a tool for exact and fast transcript assembly and quantification, using network flows and a novel extension of splice-graphs.
 
+Run
+```
+ryuto --help
+```
+to see options.
+
+# Testdata
+
+You may download the alignments of real data used for publication [here](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments2.tar.gz).
+
+# Pre-Compiled
+Operation System | Version | Binary
+ ---------------- | ------- | ------
+Ubuntu           | 26      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Ubuntu-26/ryuto)
+Ubuntu           | 28      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Ubuntu-28/ryuto)
+Fedora           | 27      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Fedora-27/ryuto)
+Fedora           | 28      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Fedora-28/ryuto)
+
+Fedora users may have to install g++ in order for the pre-compiled binaries to work.
+```
+sudo dnf install gcc-c++
+```
 
 # Installation
-Download the source code from:
-[https://github.com/studla/RYUTO]
+Download the newest source code from:https://github.com/studla/RYUTO
 
 The following additional libraries need to installed in order to run Ryuto:
-(zlib)
+zlib
 (openmp)
 boost
 htslib
 clp
 lemon
 
-
+```
 Compile with:
 ./configure [options]
 make
+```
+The compiled binary can then be found in the `src` subfolder.
 
 ## ZLIB
 
@@ -49,7 +72,7 @@ OpenMP is used for parallelization and needs to be installed in order for this f
 
 ## Install Boost
 
-Download and install boost from http://www.boost.org.
+Download and install boost from (http://www.boost.org).
 
 On Fedora you may run:
 ```
@@ -65,7 +88,7 @@ If installed to a non-standard path, add with --with-boost=/path/to/your/boost t
 
 ## Install htslib
 
-Download and install htslib from (https://github.com/samtools/htslib)
+Download and install htslib from (https://github.com/samtools/htslib).
 Install with:
 ```
 ./configure
@@ -87,19 +110,19 @@ You may find details under (https://projects.coin-or.org/Clp).
 
 Use the following call to install Clp to a custom location
 ```
-./configure --disable-bzlib --disable-zlib --prefix=/path/to/your/Clp
+./configure --disable-bzlib --disable-zlib --prefix=/path/to/your/clp
 make
 make install
 ```
 
-If installed to a non-standard path, add with --with-clp=/path/to/your/Clp to the Ryuto ./configure call..
+If installed to a non-standard path, add with --with-clp=/path/to/your/clp to the Ryuto ./configure call..
 
 ## Install Lemon
 
 Download and install lemon after clp. Please use the version provided in the `libraries_to_install` subfolder.
 The provided version contains a simplified makefile. If you want to use your own version of lemon,
 please make sure it is linked appropriately to CBC, CLP and COIN-UTILS.
-You may find details under (http://lemon.cs.elte.hu/trac/lemon)
+You may find details under (http://lemon.cs.elte.hu/trac/lemon).
 
 Install using
 ```
