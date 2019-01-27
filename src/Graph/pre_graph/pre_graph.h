@@ -25,14 +25,8 @@ public:
     
    void set_size(const unsigned int size);
    
-   void initialize_exon_gaps_paired( std::deque<overlap_node> &nodes, std::deque<contained_node> &contained_nodes);
-   void initialize_exon_gaps_single( std::deque<overlap_node> &nodes, std::deque<contained_node> &contained_nodes);
-   void initialize_exon_gaps_single_all( std::deque<overlap_node> &nodes, std::deque<contained_node> &contained_nodes);
-   
    void initialize_exon_gaps_single_raw();
    void initialize_exon_gaps_paired_raw();
-   void initialize_exon_gaps_single_raw2();
-   void initialize_exon_gaps_paired_raw2();
    
 private:
   
@@ -66,20 +60,13 @@ public:
     // we extract paired data and single data that can be used to disambiguate nodes
     // after contracting, nodes always represent an exon unsecurity 
     graph_list<paired_exon_group *>*  pairs_for_exon;
-    graph_list<std::pair<exon_group *, rcount> >*  single_for_exon;
+    graph_list<std::pair<exon_group *, gmap<int, rcount> > >*  single_for_exon;
     
     //meta-data // TODO, WHAT DO WE NEED?
     bool paired;
     
-    rcount frag_count_chrom;
-    rcount read_count_chrom;
-    rcount frag_count_region;
-    rcount read_count_region;
     rpos average_fragment_length;
-    
-    unsigned int bam_count_total;
-    unsigned int bam_count;
-    
+      
     //we keep the info transcripts from annotation
     graph_list<exon_group *> guide_transcripts;
     

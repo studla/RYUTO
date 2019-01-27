@@ -561,7 +561,10 @@ Reader/Chromosome/read_collection.o: Reader/Chromosome/read_collection.cc \
  /usr/include/c++/7/bits/stl_multimap.h /usr/include/c++/7/set \
  /usr/include/c++/7/bits/stl_set.h /usr/include/c++/7/bits/stl_multiset.h \
  /usr/include/c++/7/bitset /usr/include/c++/7/complex \
- /usr/include/c++/7/sstream /usr/include/c++/7/bits/sstream.tcc
+ /usr/include/c++/7/sstream /usr/include/c++/7/bits/sstream.tcc \
+ /usr/include/c++/7/unordered_map /usr/include/c++/7/bits/hashtable.h \
+ /usr/include/c++/7/bits/hashtable_policy.h \
+ /usr/include/c++/7/bits/unordered_map.h
 
 /usr/include/stdc-predef.h:
 
@@ -1870,3 +1873,11 @@ Reader/Chromosome/../../Datatype_Templates/maps.h:
 /usr/include/c++/7/sstream:
 
 /usr/include/c++/7/bits/sstream.tcc:
+
+/usr/include/c++/7/unordered_map:
+
+/usr/include/c++/7/bits/hashtable.h:
+
+/usr/include/c++/7/bits/hashtable_policy.h:
+
+/usr/include/c++/7/bits/unordered_map.h:

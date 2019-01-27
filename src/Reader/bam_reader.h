@@ -26,17 +26,17 @@ public:
    
     void finalize(const std::string &chromosome);
     unsigned int get_num_connected(const std::string &chromosome);
-    void populate_next_single(const std::string &chrom_name, connected *ob, unsigned int &bam_count_absolute, pre_graph* raw, exon_meta* meta);
-    bool populate_next_group(const std::string &chrom_name, greader_list<connected> &all_connected, exon_meta* meta, unsigned int &bam_count_absolute);
+    void populate_next_single(const std::string &chrom_name, connected *ob, pre_graph* raw, exon_meta* meta);
+    bool populate_next_group(const std::string &chrom_name, greader_list<connected> &all_connected, exon_meta* meta);
             
     void discard(const std::string &chrom_name);
     
 protected:
 
-    void finish_block( chromosome* chrom,  rpos &left,  rpos &right, r_border_set<rpos>::iterator &ex_start_it,  r_border_set<rpos>::iterator &ex_end_it, bool last_file);
+    void finish_block( chromosome* chrom,  rpos &left,  rpos &right, r_border_set<rpos>::iterator &ex_start_it,  r_border_set<rpos>::iterator &ex_end_it, const unsigned int input_prefix, bool last_file);
     
-    void process_read( bam1_t *bread, rpos &left_border, rpos &right_border,  chromosome* chrom, const std::string id_prefix,
-        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, bool last_file);
+    void process_read( bam1_t *bread, rpos &left_border, rpos &right_border, chromosome* chrom, const std::string id_prefix,
+        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, const unsigned int input_prefix, bool last_file);
     rread* parse_read( bam1_t *bread, chromosome* chrom, greader_list<interval> &junctions, greader_list<std::pair<rpos, rpos> > &splices, rpos &left,  rpos &right, const std::string id_prefix,
          r_border_set<rpos>::iterator &ex_start_it,  r_border_set<rpos>::iterator &ex_end_it);
     void add_known_start( chromosome* chrom, const rpos pos,
@@ -69,7 +69,7 @@ protected:
     void mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom , const greader_refsorted_list<raw_atom*>::iterator &atom_start, const greader_refsorted_list<raw_atom*>::iterator &atom_end);
     
     void filter_bins(connected* conn, chromosome* chrom);
-    void reduce_reads(connected* conn);
+    void reduce_reads(connected* conn, const unsigned int ip);
     void reset_reads(chromosome* chrom);
     
     void split_independent_component(connected *conn, greader_list<connected> &connected) ;

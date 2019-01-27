@@ -12,7 +12,7 @@
 
 class mincost_flow_square : public mincost_flow_base {
 public:
-   mincost_flow_square(pre_graph* raw, exon_meta* meta, const std::string &chromosome);
+   mincost_flow_square(pre_graph* raw, exon_meta* meta, const std::string &chromosome, std::set<int> &ids);
    virtual ~mincost_flow_square();
     
 protected:

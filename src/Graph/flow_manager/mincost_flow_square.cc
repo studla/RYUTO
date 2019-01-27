@@ -7,7 +7,7 @@
 
 #include "mincost_flow_square.h"
 
-mincost_flow_square::mincost_flow_square(pre_graph* raw, exon_meta* meta, const std::string &chromosome) : mincost_flow_base(raw, meta, chromosome) { 
+mincost_flow_square::mincost_flow_square(pre_graph* raw, exon_meta* meta, const std::string &chromosome, std::set<int> &ids) : mincost_flow_base(raw, meta, chromosome, ids) { 
 }
 
 
@@ -20,7 +20,7 @@ void mincost_flow_square::add_offset_edge(capacity_type capacity, capacity_type 
         ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference) {
     
-    if (orig_cap == 0) return;
+    if (orig_cap == 0) orig_cap = 1;
     
     unsigned int mod = 1;
     if (exon_count > 2) {

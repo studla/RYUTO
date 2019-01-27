@@ -9,8 +9,10 @@
 #define	EXON_META_H
 
 #include "../../Datatype_Templates/misc_types.h"
-#include <string>
 #include "../../Logger/logger.h"
+
+#include <string>
+#include <vector>
 
 class exon_meta {
 public:
@@ -34,10 +36,8 @@ public:
     
     std::string chromosome;
     std::string strand;
-    rcount region_reads;
-    rcount region_frags;
     
-    rcount absolute_reads;
+    std::vector<unsigned long> absolute_reads;
     
     rpos avrg_read_length;
     

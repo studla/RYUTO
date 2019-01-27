@@ -7,35 +7,24 @@
 
 #include "path_finder.h"
 #include "single_path_heuristic.h"
-#include "exhaustive_enum.h"
-#include "multi_path_heuristic.h"
-#include "single_path_heuristic_evidence_penalty.h"
 #include "single_path_heuristic_evidence_length_penalty.h"
-#include "single_path_heuristic_evidence_offset.h"
-#include "single_path_heuristic_kmax_length.h"
-#include "single_path_heuristic_longest_max.h"
-
 #include "../base_manager.h"
-#include "single_path_heuristic_no_neighbour.h"
 #include <unordered_map>
 
 path_finder::path_finder(ListDigraph& wc,
         ListDigraph::Node& s,
         ListDigraph::Node& t,
-        ListDigraph::ArcMap<capacity_type>& cfc,
-        ListDigraph::ArcMap<capacity_mean> &mc, 
-        ListDigraph::ArcMap<exon_edge>& ces,
-        ListDigraph::ArcMap<edge_types::edge_type>& cet,
-        ListDigraph::ArcMap<edge_length> &cel,
+        ListDigraph::ArcMap<flow_series>& fc,   
+        ListDigraph::ArcMap<arc_identifier> &ai,
         ListDigraph::NodeMap<unsigned int>& cni,
         ListDigraph::ArcMap<arc_bridge>& kp,
         ListDigraph::ArcMap<arc_back_bridge>& kbp,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_in,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_out,
-        ListDigraph::ArcMap< lazy<std::set< transcript_unsecurity > > > &unsecurityArc,
-        ListDigraph::NodeMap< unsecurity_id > &unsecurityId,
+        ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
+        ListDigraph::NodeMap< unsecurity_id> &unsecurityId,
+        std::set<int>& input_ids,
+        std::map<int, alternative_transcript_collection>& transcripts,
         unsigned int size) 
- : wc(wc), s(s), t(t), cfc(cfc), mc(mc), ces(ces), cet(cet), cel(cel), cni(cni), kp(kp), kbp(kbp), cycle_id_in(cycle_id_in), cycle_id_out(cycle_id_out), unsecurityArc(unsecurityArc), unsecurityId(unsecurityId), size(size)
+ : wc(wc), s(s), t(t), fc(fc), ai(ai), cni(cni), kp(kp), kbp(kbp), unsecurityArc(unsecurityArc), unsecurityId(unsecurityId), input_ids(input_ids), transcripts(transcripts), size(size)
 {
 
 }
@@ -43,70 +32,54 @@ path_finder::path_finder(ListDigraph& wc,
 path_finder::~path_finder() {
 }
 
-path_finder* path_finder::create_path_finder(ListDigraph& wc, ListDigraph::Node& s, ListDigraph::Node& t, ListDigraph::ArcMap<capacity_type>& cfc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<exon_edge>& ces, ListDigraph::ArcMap<edge_types::edge_type>& cet, ListDigraph::ArcMap<edge_length>& cel, ListDigraph::NodeMap<unsigned int>& cni, ListDigraph::ArcMap<arc_bridge>& kp, ListDigraph::ArcMap<arc_back_bridge>& kbp, ListDigraph::ArcMap<unsigned int>& cycle_id_in, ListDigraph::ArcMap<unsigned int>& cycle_id_out, ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc, ListDigraph::NodeMap< unsecurity_id> &unsecurityId, unsigned int size, exon_meta* meta) {
+path_finder* path_finder::create_path_finder(ListDigraph& wc,
+        ListDigraph::Node& s,
+        ListDigraph::Node& t,
+        ListDigraph::ArcMap<flow_series>& fc,   
+        ListDigraph::ArcMap<arc_identifier> &ai,
+        ListDigraph::NodeMap<unsigned int>& cni,
+        ListDigraph::ArcMap<arc_bridge>& kp,
+        ListDigraph::ArcMap<arc_back_bridge>& kbp,
+        ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
+        ListDigraph::NodeMap< unsecurity_id> &unsecurityId,
+        std::set<int>& input_ids,
+        std::map<int, alternative_transcript_collection>& transcripts,
+        unsigned int size, exon_meta* meta) {
     
-//    unsigned int complexity = 1;
-//    for (ListDigraph::NodeIt n(wc); n != INVALID; ++n) {
-//        if (n == t) {
-//            continue;
-//        }
-//                
-//        unsigned int count = 0;
-//        for (ListDigraph::OutArcIt o(wc, n); o != INVALID; ++o) {
-//            ++count;
-//        }
-//        if (count != 0) complexity = complexity * count;
-//        if (complexity > 11) {
-//            break;
-//        }
-//    }
-//    
-//    if (complexity < 11) {
-//        logger::Instance()->info("Exhaustive " + std::to_string(complexity)+ "\n"); 
-//        return new exhaustive_enum(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
-//    }
-    
-    return new single_path_heuristic_evidence_length_penalty(wc,s,t,cfc, mc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
+    return new single_path_heuristic_evidence_length_penalty(wc, s, t, fc, ai, cni, kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts, size);
 
-    
-    
-    // for now a simple return of one version is good enough
-   // return new single_path_heuristic(wc,s,t,cfc, mc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
-    // return new single_path_heuristic_evidence_penalty(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
-    // return new single_path_heuristic_evidence_offset(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
-   //   return new exhaustive_enum(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp,cycle_id_in, cycle_id_out, size);
-    // return new multi_path_heuristic(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp,cycle_id_in, cycle_id_out, size);  
-     
-    //return new single_path_heuristic_kmax_length(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
-    //return new single_path_heuristic_no_neighbour(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size, meta);
-    //return new single_path_heuristic_longest_max(wc,s,t,cfc,ces,cet,cel,cni,kp,kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size);
 }
 
 
 
-capacity_type path_finder::add_path_to_collection(std::deque<ListDigraph::Arc> &stack, alternative_transcript_collection &cc,
-        ListDigraph &wc, ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<exon_edge> &ces, ListDigraph::ArcMap<edge_types::edge_type> &cet,
-        ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<unsigned int>& cycle_id_in,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_out, ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
-        ListDigraph::NodeMap< unsecurity_id > &unsecurityId) {
+void path_finder::add_path_to_collection(std::deque<ListDigraph::Arc> &stack, alternative_transcript_collection &cc,
+        ListDigraph &wc, ListDigraph::ArcMap<arc_identifier> &ai, ListDigraph::ArcMap<flow_series> &fs,
+        ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
+        ListDigraph::NodeMap< unsecurity_id > &unsecurityId,  std::set<int> &input_ids) {
      
     // we collect every info over the path
     cc.transcripts.push_back(lazy<transcript>());
     
     std::deque<ListDigraph::Arc>::iterator a = stack.begin();
     // there is always at least one element in the stack
-    cc.transcripts.back()->found_edge = ces[*a];
-    cc.transcripts.back()->flow = fc[*a];  
-    cc.transcripts.back()->cycle_id_in = cycle_id_in[*a];
+    
+    cc.transcripts.back()->found_edge = ai[*a].edge_specifier;
+    
+    for (std::set<int>::iterator iii = input_ids.begin(); iii != input_ids.end(); ++iii) {
+        int id = *iii;
+        cc.transcripts.back()->series[id].flow = fs[*a].get_flow(id);  
+    }
+    
+    cc.transcripts.back()->cycle_id_in = ai[*a].cycle_id_in;
  
     std::deque<ListDigraph::Arc>::iterator first = a;
     ++a;
     
-    if (cet[*first] == edge_types::HELPER && a != stack.end()) {
-        cc.transcripts.back()->found_edge = ces[*a];
+    if (ai[*first].edge_type == edge_types::HELPER && a != stack.end()) {
+        cc.transcripts.back()->found_edge = ai[*a].edge_specifier;
         
-        if (cet[*a] == edge_types::HELPER && ces[*a].node_index == -1) {
-            cc.transcripts.back()->found_edge = ces[*first];
+        if (ai[*a].edge_type == edge_types::HELPER && ai[*a].edge_specifier.node_index == -1) {
+            cc.transcripts.back()->found_edge = ai[*first].edge_specifier;
         }
         
     } else {
@@ -138,16 +111,19 @@ capacity_type path_finder::add_path_to_collection(std::deque<ListDigraph::Arc> &
             cc.transcripts.back()->unsecurity_id.push_back(*unsecs);
         }
         
-        if (cet[*a] == edge_types::EXON) {
-             cc.transcripts.back()->found_edge.id |= ces[*a].id;
+        if (ai[*a].edge_type == edge_types::EXON) {
+             cc.transcripts.back()->found_edge.id |= ai[*a].edge_specifier.id;
         }
         
-        if (fc[*a] < cc.transcripts.back()->flow )  {
-            cc.transcripts.back()->flow = fc[*a];
+        for (std::set<int>::iterator iii = input_ids.begin(); iii != input_ids.end(); ++iii) {
+            int id = *iii;
+            if (fc[*a].get_flow(id) < cc.transcripts.back()->series[id].flow )  {
+                cc.transcripts.back()->series[id].flow = fc[*a].get_flow(id);
+            }
         }
     }
     --a;
-    cc.transcripts.back()->cycle_id_out = cycle_id_out[*a];
+    cc.transcripts.back()->cycle_id_out = ai[*a].cycle_id_out;
 
     // this is a case if we have single exon flow extraction
     if (cc.transcripts.back()->found_edge.id.empty()) {
@@ -161,53 +137,29 @@ capacity_type path_finder::add_path_to_collection(std::deque<ListDigraph::Arc> &
        cc.transcripts.back()->found_edge.set(node_index, true); 
         
     }
-    
-    return cc.transcripts.back()->flow;
 }
 
 
-capacity_mean path_finder::remove_full_path(std::deque<ListDigraph::Arc> &stack, capacity_type cap,
-        ListDigraph &wc,
-        ListDigraph::ArcMap<capacity_type> &fc, ListDigraph::ArcMap<capacity_mean> &mc, ListDigraph::ArcMap<exon_edge> &ces,
-        ListDigraph::ArcMap<edge_types::edge_type> &cet, ListDigraph::ArcMap<edge_length> &cel,
+flow_series path_finder::remove_full_path(std::deque<ListDigraph::Arc> &stack, 
+        gmap<int, capacity_type> &capacities, int guiding, ListDigraph &wc, 
+        ListDigraph::ArcMap<arc_identifier> &ai,ListDigraph::ArcMap<flow_series> &fs,
         ListDigraph::ArcMap<arc_bridge> &know_paths, ListDigraph::ArcMap<arc_back_bridge> &know_back_paths,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_in, ListDigraph::ArcMap<unsigned int>& cycle_id_out, 
         ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
-        ListDigraph::NodeMap< unsecurity_id> &unsecurityId) {
+        ListDigraph::NodeMap< unsecurity_id> &unsecurityId, std::set<int> &input_ids, alternative_transcript_collection &trans) {
     
     std::deque<ListDigraph::Arc>::iterator a = stack.begin(); 
     ListDigraph::Arc left = *a;
     ++a;
     for (;a != stack.end(); ++a) {
         
-        // logging stuff to remove
-        
-//        for (ListDigraph::ArcIt a(wc); a != INVALID; ++a) {
-//            
-//           logger::Instance()->debug("Arc " + std::to_string(wc.id(a))); 
-//           for (arc_bridge::iterator ab = know_paths[a].begin(); ab != know_paths[a].end(); ++ab) {
-//               logger::Instance()->debug(" f " + std::to_string(ab->first)); 
-//           }
-//           for (arc_back_bridge::iterator ab = know_back_paths[a].begin(); ab != know_back_paths[a].end(); ++ab) {
-//               logger::Instance()->debug(" b " + std::to_string(*ab)); 
-//           }
-//           logger::Instance()->debug("\n" );  
-//        }
-        
+        // logging stuff to remove                
         // end logging stuff
         
-        left = base_manager::extract_path(left, *a, cap,  know_paths, know_back_paths, wc, fc, mc, ces, cet , cel, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
-        
-//        logger::Instance()->debug("Removed " + std::to_string( wc.id(*a) ) +" " + std::to_string(wc.id(left))+ "\n");
-//        digraphWriter(wc, std::cout)
-//            .arcMap("edge_specifier", ces)
-//            .arcMap("edge_type", cet)
-//            .arcMap("flow", fc)
-//            .run();  
-        
+        left = base_manager::extract_path(left, *a, capacities, guiding, wc, ai, fs, know_paths, know_back_paths, unsecurityArc, unsecurityId, input_ids, trans);
+              
     }
       
-    capacity_mean res = mc[left];
+    flow_series res = fs[left];
     wc.erase(left); // erased source target arc of path we extracted stepwise
       
     return res;
@@ -256,7 +208,7 @@ void path_finder::reverse_arc_cross_map(ListDigraph& g, ListDigraph& wc, ListDig
 }
 
 
-void path_finder::extract_guided_transcripts(alternative_transcript_collection& results, graph_list<exon_group*> guided) {
+void path_finder::extract_guided_transcripts(alternative_transcript_collection& results, graph_list<exon_group*> guided, int guiding_id) {
  
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("-------------- Establish Guided Transcript order.\n");
@@ -352,12 +304,12 @@ void path_finder::extract_guided_transcripts(alternative_transcript_collection& 
     logger::Instance()->debug("-------------- Done.\n");
     #endif
 
-    extract_guided_transcripts_linear_order(results, ordered_guides);
+    extract_guided_transcripts_linear_order(results, ordered_guides, guiding_id);
 }
 
 
 // OLD LINEAR VERSION, better if we find a corrected order among them first
-void path_finder::extract_guided_transcripts_linear_order(alternative_transcript_collection& results, graph_list<exon_group*> guided) { 
+void path_finder::extract_guided_transcripts_linear_order(alternative_transcript_collection& results, graph_list<exon_group*> guided, int guiding_id) { 
  
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("-------------- Extract Guided Transcripts.\n");
@@ -380,7 +332,7 @@ void path_finder::extract_guided_transcripts_linear_order(alternative_transcript
         
         ListDigraph::Arc null_arc = ListDigraph::ArcIt(INVALID);
         if ( recursive_arc_backtracing(*transc, start_index, end_index, s, null_arc, path, false) ) {
-           add_path_to_collection(path, results, wc, cfc, ces, cet, kp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+           add_path_to_collection(path, results, wc, ai, fc, kp, unsecurityArc, unsecurityId, input_ids);
            results.transcripts.back()->guided = true;
            results.transcripts.back()->guide_reference = (*eg_it)->reference_name;    
         }
@@ -412,23 +364,33 @@ void path_finder::extract_guided_transcripts_linear_order(alternative_transcript
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Path found " + std::to_string( path.size() )+ " ");
             for (std::deque<ListDigraph::Arc>::iterator it = path.begin(); it!= path.end(); ++it) {
-                  logger::Instance()->debug(std::to_string( wc.id(*it) )+ ", " + ces[*it].to_string() + "\n");
+                  logger::Instance()->debug(std::to_string( wc.id(*it) )+ ", " + ai[*it].edge_specifier.to_string() + "\n");
             }
             logger::Instance()->debug("\n");
             #endif
-            
-            capacity_type cap = add_path_to_collection(path, ac, wc, cfc, ces, cet, kp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+                        
+            add_path_to_collection(path, results, wc, ai, fc, kp, unsecurityArc, unsecurityId, input_ids);
+      
+            gmap<int, capacity_type> capacities;
+            for (gmap<int, transcript::series_struct>::iterator iss = results.transcripts.back()->series.begin(); iss != results.transcripts.back()->series.end(); ++iss) {
+                capacities[iss->first] = iss->second.flow;
+            }
+
             // now we need to remove this path from the copy
-            capacity_mean mean = remove_full_path(path, cap, wc, cfc, mc,  ces, cet, cel, kp, kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId); 
+            flow_series flows = remove_full_path(path, capacities, guiding_id, wc, ai, fc, kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts[guiding_id]);
 
-            results.transcripts[offset+i]->flow = cap;
-            results.transcripts[offset+i]->mean = mean.mean;
-            results.transcripts[offset+i]->score = mean.compute_score();
+            for (gfmap<int, flow_series::series_struct>::iterator ssi = flows.series.begin(); ssi != flows.series.end(); ++ssi) {
+                results.transcripts[offset+i]->series[ssi->first].flow = ssi->second.flow;
+                results.transcripts[offset+i]->series[ssi->first].mean = ssi->second.mean.mean;
+                results.transcripts[offset+i]->series[ssi->first].score = ssi->second.mean.compute_score();
+            }
+
         } else {
-
-            results.transcripts[offset+i]->flow = 1;
-            results.transcripts[offset+i]->mean = 1;
-            results.transcripts[offset+i]->score = 1;
+            for (std::set<int>::iterator ssi = input_ids.begin(); ssi != input_ids.end(); ++ssi) {
+                results.transcripts[offset+i]->series[*ssi].flow = 1;
+                results.transcripts[offset+i]->series[*ssi].mean = 1;
+                results.transcripts[offset+i]->series[*ssi].score = 1;
+            }
           //  logger::Instance()->error("GUIDE ERROR 2\n");
         }
     }
@@ -457,22 +419,22 @@ bool path_finder::recursive_arc_backtracing(exon_edge& goal, unsigned int next_s
         logger::Instance()->debug("Look a " + std::to_string(wc.id(a))+".\n");
         #endif
         
-        if (cet[a] == edge_types::BACKLINK) { // ignoring circular references, otherwise we have a BAD time
+        if (ai[a].edge_type == edge_types::BACKLINK) { // ignoring circular references, otherwise we have a BAD time
             continue;
         }
         
         bool correct_edge = false;
-        if (cet[a] != edge_types::EXON) { // all edges except for circular and labeled exon edges
+        if (ai[a].edge_type != edge_types::EXON) { // all edges except for circular and labeled exon edges
             // just jump add
             bool correct = exon;
-            if (ces[a].node_index == next_start && ces[a].node_index == goal_end_index) {
+            if (ai[a].edge_specifier.node_index == next_start && ai[a].edge_specifier.node_index == goal_end_index) {
                 correct = true;
             }
             
             correct_edge = recursive_arc_backtracing(goal, next_start, goal_end_index, wc.target(a), a, path, correct);
         } else {
             
-            unsigned int start_index = ces[a].id.find_first();
+            unsigned int start_index = ai[a].edge_specifier.id.find_first();
             
             // this is an EXON here
             if (start_index != next_start) {
@@ -485,14 +447,14 @@ bool path_finder::recursive_arc_backtracing(exon_edge& goal, unsigned int next_s
             boost::dynamic_bitset<>::size_type index = start_index;
             while(index != boost::dynamic_bitset<>::npos) {
                 end_index = index;
-                index = ces[a].id.find_next(index);
+                index = ai[a].edge_specifier.id.find_next(index);
             }
             
             #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Test Cont " + ces[a].to_string() + " vs " + goal.to_string() + " ; " + std::to_string(start_index) + "-"+  std::to_string(end_index) +".\n");
+            logger::Instance()->debug("Test Cont " + ai[a].edge_specifier.to_string() + " vs " + goal.to_string() + " ; " + std::to_string(start_index) + "-"+  std::to_string(end_index) +".\n");
             #endif
             // exon edge, we only follow this if it is compliant to the goal
-            if ( ces[a].is_contained_in(goal, start_index, end_index) ) {
+            if ( ai[a].edge_specifier.is_contained_in(goal, start_index, end_index) ) {
                 
                 // it is contained, so we take the route
                 correct_edge = recursive_arc_backtracing(goal, end_index, goal_end_index, wc.target(a), a, path, true);

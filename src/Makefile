@@ -116,28 +116,19 @@ am_ryuto_OBJECTS = Logger/logger.$(OBJEXT) \
 	Reader/Chromosome/exon.$(OBJEXT) \
 	Reader/Chromosome/connection_iterator.$(OBJEXT) \
 	Reader/Chromosome/read.$(OBJEXT) \
+	Reader/Chromosome/raw_series_counts.$(OBJEXT) \
 	Reader/Chromosome/raw_atom.$(OBJEXT) \
 	Reader/Chromosome/connected.$(OBJEXT) \
 	Reader/gffReader.$(OBJEXT) Reader/reader_base.$(OBJEXT) \
 	Reader/bam_guided_reader.$(OBJEXT) Reader/bam_reader.$(OBJEXT) \
 	Graph/flow_manager/mincost_flow_square_hcost.$(OBJEXT) \
 	Graph/flow_manager/path_finder/path_finder.$(OBJEXT) \
-	Graph/flow_manager/path_finder/exhaustive_enum.$(OBJEXT) \
-	Graph/flow_manager/path_finder/single_path_heuristic_no_neighbour.$(OBJEXT) \
-	Graph/flow_manager/path_finder/single_path_heuristic_kmax_length.$(OBJEXT) \
 	Graph/flow_manager/path_finder/single_path_heuristic_evidence_length_penalty.$(OBJEXT) \
-	Graph/flow_manager/path_finder/single_path_heuristic_evidence_offset.$(OBJEXT) \
-	Graph/flow_manager/path_finder/single_path_heuristic_evidence_penalty.$(OBJEXT) \
 	Graph/flow_manager/path_finder/single_path_heuristic.$(OBJEXT) \
-	Graph/flow_manager/path_finder/multi_path_heuristic.$(OBJEXT) \
-	Graph/flow_manager/path_finder/single_path_heuristic_longest_max.$(OBJEXT) \
-	Graph/flow_manager/mincost_flow_square_limit.$(OBJEXT) \
 	Graph/flow_manager/mincost_flow_base.$(OBJEXT) \
-	Graph/flow_manager/mincost_flow_linear_limit.$(OBJEXT) \
 	Graph/flow_manager/base_manager_buildgraph.$(OBJEXT) \
 	Graph/flow_manager/base_manager_flow_handler.$(OBJEXT) \
 	Graph/flow_manager/mincost_flow_square.$(OBJEXT) \
-	Graph/flow_manager/basic_coverage_flow.$(OBJEXT) \
 	Graph/output/transcript.$(OBJEXT) \
 	Graph/output/alternative_transcript_collection.$(OBJEXT) \
 	Graph/output/transcript_unsecurity.$(OBJEXT) \
@@ -147,21 +138,22 @@ am_ryuto_OBJECTS = Logger/logger.$(OBJEXT) \
 	Graph/overlap_graph/overlap_node.$(OBJEXT) \
 	Graph/overlap_graph/arc_range.$(OBJEXT) \
 	Graph/flow_graph/edge_length.$(OBJEXT) \
-	Graph/flow_graph/region.$(OBJEXT) \
+	Graph/flow_graph/build/region.$(OBJEXT) \
+	Graph/flow_graph/build/count_raw_node.$(OBJEXT) \
+	Graph/flow_graph/build/count_raw_edge.$(OBJEXT) \
 	Graph/flow_graph/arc_bridge.$(OBJEXT) \
 	Graph/flow_graph/arc_back_bridge.$(OBJEXT) \
-	Graph/flow_graph/capacity_mean.$(OBJEXT) \
-	Graph/flow_graph/count_raw_node.$(OBJEXT) \
+	Graph/flow_graph/coverage/capacity_mean.$(OBJEXT) \
+	Graph/flow_graph/coverage/flow_series.$(OBJEXT) \
+	Graph/flow_graph/arc_identifier.$(OBJEXT) \
 	Graph/flow_graph/path_evidence.$(OBJEXT) \
 	Graph/flow_graph/exon_edge.$(OBJEXT) \
-	Graph/flow_graph/count_raw_edge.$(OBJEXT) \
-	Graph/flow_graph/rpath.$(OBJEXT) \
-	Graph/flow_graph/lpath.$(OBJEXT) \
 	Graph/flow_graph/path.$(OBJEXT) \
 	Graph/pre_graph/exon_meta.$(OBJEXT) \
 	Graph/pre_graph/exon_group.$(OBJEXT) \
-	Graph/pre_graph/pre_graph.$(OBJEXT) Options/options.$(OBJEXT) \
-	main.$(OBJEXT)
+	Graph/pre_graph/pre_graph.$(OBJEXT) \
+	Graph/pre_graph/exon_group_count.$(OBJEXT) \
+	Options/options.$(OBJEXT) main.$(OBJEXT)
 ryuto_OBJECTS = $(am_ryuto_OBJECTS)
 am__DEPENDENCIES_1 =
 ryuto_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
@@ -223,12 +215,12 @@ ETAGS = etags
 CTAGS = ctags
 am__DIST_COMMON = $(srcdir)/Makefile.in $(top_srcdir)/depcomp
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
-ACLOCAL = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing aclocal-1.15
+ACLOCAL = ${SHELL} /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/missing aclocal-1.15
 AMTAR = $${TAR-tar}
 AM_DEFAULT_VERBOSITY = 1
-AUTOCONF = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing autoconf
-AUTOHEADER = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing autoheader
-AUTOMAKE = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing automake-1.15
+AUTOCONF = ${SHELL} /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/missing autoconf
+AUTOHEADER = ${SHELL} /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/missing autoheader
+AUTOMAKE = ${SHELL} /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/missing automake-1.15
 AWK = gawk
 BOOST_CPPFLAGS = -I/homes/biertruck/thomas/Libraries//include
 BOOST_LDFLAGS = -L/homes/biertruck/thomas/Libraries//lib -Wl,-rpath,/homes/biertruck/thomas/Libraries//lib
@@ -268,7 +260,7 @@ LEMON_LIBS = -lemon
 LIBOBJS = 
 LIBS = -lz 
 LTLIBOBJS = 
-MAKEINFO = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/missing makeinfo
+MAKEINFO = ${SHELL} /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/missing makeinfo
 MKDIR_P = /usr/bin/mkdir -p
 OBJEXT = o
 OPENMP_CXXFLAGS = -fopenmp
@@ -285,10 +277,10 @@ SHELL = /bin/sh
 STRIP = 
 VERSION = 1.0
 ZLIB = -lz
-abs_builddir = /homes/biertruck/thomas/work/transcript_tool/src
-abs_srcdir = /homes/biertruck/thomas/work/transcript_tool/src
-abs_top_builddir = /homes/biertruck/thomas/work/transcript_tool
-abs_top_srcdir = /homes/biertruck/thomas/work/transcript_tool
+abs_builddir = /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/src
+abs_srcdir = /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/src
+abs_top_builddir = /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi
+abs_top_srcdir = /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi
 ac_ct_CC = gcc
 ac_ct_CXX = g++
 am__include = include
@@ -316,7 +308,7 @@ host_vendor = unknown
 htmldir = ${docdir}
 includedir = ${prefix}/include
 infodir = ${datarootdir}/info
-install_sh = ${SHELL} /homes/biertruck/thomas/work/transcript_tool/install-sh
+install_sh = ${SHELL} /homes/biertruck/thomas/work/ryuto_branches/transcript_tool_paper4_multi/install-sh
 libdir = ${exec_prefix}/lib
 libexecdir = ${exec_prefix}/libexec
 localedir = ${datarootdir}/locale
@@ -341,28 +333,19 @@ ryuto_SOURCES = Logger/logger.cc Controller/bam_controller.cc \
 	Reader/Chromosome/read_collection.cc \
 	Reader/Chromosome/chromosome.cc Reader/Chromosome/exon.cc \
 	Reader/Chromosome/connection_iterator.cc \
-	Reader/Chromosome/read.cc Reader/Chromosome/raw_atom.cc \
-	Reader/Chromosome/connected.cc Reader/gffReader.cc \
-	Reader/reader_base.cc Reader/bam_guided_reader.cc \
-	Reader/bam_reader.cc \
+	Reader/Chromosome/read.cc \
+	Reader/Chromosome/raw_series_counts.cc \
+	Reader/Chromosome/raw_atom.cc Reader/Chromosome/connected.cc \
+	Reader/gffReader.cc Reader/reader_base.cc \
+	Reader/bam_guided_reader.cc Reader/bam_reader.cc \
 	Graph/flow_manager/mincost_flow_square_hcost.cc \
 	Graph/flow_manager/path_finder/path_finder.cc \
-	Graph/flow_manager/path_finder/exhaustive_enum.cc \
-	Graph/flow_manager/path_finder/single_path_heuristic_no_neighbour.cc \
-	Graph/flow_manager/path_finder/single_path_heuristic_kmax_length.cc \
 	Graph/flow_manager/path_finder/single_path_heuristic_evidence_length_penalty.cc \
-	Graph/flow_manager/path_finder/single_path_heuristic_evidence_offset.cc \
-	Graph/flow_manager/path_finder/single_path_heuristic_evidence_penalty.cc \
 	Graph/flow_manager/path_finder/single_path_heuristic.cc \
-	Graph/flow_manager/path_finder/multi_path_heuristic.cc \
-	Graph/flow_manager/path_finder/single_path_heuristic_longest_max.cc \
-	Graph/flow_manager/mincost_flow_square_limit.cc \
 	Graph/flow_manager/mincost_flow_base.cc \
-	Graph/flow_manager/mincost_flow_linear_limit.cc \
 	Graph/flow_manager/base_manager_buildgraph.cc \
 	Graph/flow_manager/base_manager_flow_handler.cc \
 	Graph/flow_manager/mincost_flow_square.cc \
-	Graph/flow_manager/basic_coverage_flow.cc \
 	Graph/output/transcript.cc \
 	Graph/output/alternative_transcript_collection.cc \
 	Graph/output/transcript_unsecurity.cc \
@@ -371,17 +354,20 @@ ryuto_SOURCES = Logger/logger.cc Controller/bam_controller.cc \
 	Graph/overlap_graph/contained_node.cc \
 	Graph/overlap_graph/overlap_node.cc \
 	Graph/overlap_graph/arc_range.cc \
-	Graph/flow_graph/edge_length.cc Graph/flow_graph/region.cc \
+	Graph/flow_graph/edge_length.cc \
+	Graph/flow_graph/build/region.cc \
+	Graph/flow_graph/build/count_raw_node.cc \
+	Graph/flow_graph/build/count_raw_edge.cc \
 	Graph/flow_graph/arc_bridge.cc \
 	Graph/flow_graph/arc_back_bridge.cc \
-	Graph/flow_graph/capacity_mean.cc \
-	Graph/flow_graph/count_raw_node.cc \
+	Graph/flow_graph/coverage/capacity_mean.cc \
+	Graph/flow_graph/coverage/flow_series.cc \
+	Graph/flow_graph/arc_identifier.cc \
 	Graph/flow_graph/path_evidence.cc \
-	Graph/flow_graph/exon_edge.cc \
-	Graph/flow_graph/count_raw_edge.cc Graph/flow_graph/rpath.cc \
-	Graph/flow_graph/lpath.cc Graph/flow_graph/path.cc \
+	Graph/flow_graph/exon_edge.cc Graph/flow_graph/path.cc \
 	Graph/pre_graph/exon_meta.cc Graph/pre_graph/exon_group.cc \
-	Graph/pre_graph/pre_graph.cc Options/options.cc main.cc cc
+	Graph/pre_graph/pre_graph.cc \
+	Graph/pre_graph/exon_group_count.cc Options/options.cc main.cc
 
 # samtools includes
 
@@ -513,6 +499,9 @@ Reader/Chromosome/connection_iterator.$(OBJEXT):  \
 	Reader/Chromosome/$(DEPDIR)/$(am__dirstamp)
 Reader/Chromosome/read.$(OBJEXT): Reader/Chromosome/$(am__dirstamp) \
 	Reader/Chromosome/$(DEPDIR)/$(am__dirstamp)
+Reader/Chromosome/raw_series_counts.$(OBJEXT):  \
+	Reader/Chromosome/$(am__dirstamp) \
+	Reader/Chromosome/$(DEPDIR)/$(am__dirstamp)
 Reader/Chromosome/raw_atom.$(OBJEXT):  \
 	Reader/Chromosome/$(am__dirstamp) \
 	Reader/Chromosome/$(DEPDIR)/$(am__dirstamp)
@@ -551,40 +540,13 @@ Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp):
 Graph/flow_manager/path_finder/path_finder.$(OBJEXT):  \
 	Graph/flow_manager/path_finder/$(am__dirstamp) \
 	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/exhaustive_enum.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/single_path_heuristic_no_neighbour.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/single_path_heuristic_kmax_length.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_manager/path_finder/single_path_heuristic_evidence_length_penalty.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/single_path_heuristic_evidence_offset.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/single_path_heuristic_evidence_penalty.$(OBJEXT):  \
 	Graph/flow_manager/path_finder/$(am__dirstamp) \
 	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_manager/path_finder/single_path_heuristic.$(OBJEXT):  \
 	Graph/flow_manager/path_finder/$(am__dirstamp) \
 	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/multi_path_heuristic.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/path_finder/single_path_heuristic_longest_max.$(OBJEXT):  \
-	Graph/flow_manager/path_finder/$(am__dirstamp) \
-	Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/mincost_flow_square_limit.$(OBJEXT):  \
-	Graph/flow_manager/$(am__dirstamp) \
-	Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_manager/mincost_flow_base.$(OBJEXT):  \
-	Graph/flow_manager/$(am__dirstamp) \
-	Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/mincost_flow_linear_limit.$(OBJEXT):  \
 	Graph/flow_manager/$(am__dirstamp) \
 	Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_manager/base_manager_buildgraph.$(OBJEXT):  \
@@ -594,9 +556,6 @@ Graph/flow_manager/base_manager_flow_handler.$(OBJEXT):  \
 	Graph/flow_manager/$(am__dirstamp) \
 	Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_manager/mincost_flow_square.$(OBJEXT):  \
-	Graph/flow_manager/$(am__dirstamp) \
-	Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_manager/basic_coverage_flow.$(OBJEXT):  \
 	Graph/flow_manager/$(am__dirstamp) \
 	Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
 Graph/output/$(am__dirstamp):
@@ -642,18 +601,40 @@ Graph/flow_graph/$(DEPDIR)/$(am__dirstamp):
 Graph/flow_graph/edge_length.$(OBJEXT):  \
 	Graph/flow_graph/$(am__dirstamp) \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_graph/region.$(OBJEXT): Graph/flow_graph/$(am__dirstamp) \
-	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/build/$(am__dirstamp):
+	@$(MKDIR_P) Graph/flow_graph/build
+	@: > Graph/flow_graph/build/$(am__dirstamp)
+Graph/flow_graph/build/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) Graph/flow_graph/build/$(DEPDIR)
+	@: > Graph/flow_graph/build/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/build/region.$(OBJEXT):  \
+	Graph/flow_graph/build/$(am__dirstamp) \
+	Graph/flow_graph/build/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/build/count_raw_node.$(OBJEXT):  \
+	Graph/flow_graph/build/$(am__dirstamp) \
+	Graph/flow_graph/build/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/build/count_raw_edge.$(OBJEXT):  \
+	Graph/flow_graph/build/$(am__dirstamp) \
+	Graph/flow_graph/build/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_graph/arc_bridge.$(OBJEXT):  \
 	Graph/flow_graph/$(am__dirstamp) \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_graph/arc_back_bridge.$(OBJEXT):  \
 	Graph/flow_graph/$(am__dirstamp) \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_graph/capacity_mean.$(OBJEXT):  \
-	Graph/flow_graph/$(am__dirstamp) \
-	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_graph/count_raw_node.$(OBJEXT):  \
+Graph/flow_graph/coverage/$(am__dirstamp):
+	@$(MKDIR_P) Graph/flow_graph/coverage
+	@: > Graph/flow_graph/coverage/$(am__dirstamp)
+Graph/flow_graph/coverage/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) Graph/flow_graph/coverage/$(DEPDIR)
+	@: > Graph/flow_graph/coverage/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/coverage/capacity_mean.$(OBJEXT):  \
+	Graph/flow_graph/coverage/$(am__dirstamp) \
+	Graph/flow_graph/coverage/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/coverage/flow_series.$(OBJEXT):  \
+	Graph/flow_graph/coverage/$(am__dirstamp) \
+	Graph/flow_graph/coverage/$(DEPDIR)/$(am__dirstamp)
+Graph/flow_graph/arc_identifier.$(OBJEXT):  \
 	Graph/flow_graph/$(am__dirstamp) \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_graph/path_evidence.$(OBJEXT):  \
@@ -661,13 +642,6 @@ Graph/flow_graph/path_evidence.$(OBJEXT):  \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_graph/exon_edge.$(OBJEXT):  \
 	Graph/flow_graph/$(am__dirstamp) \
-	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_graph/count_raw_edge.$(OBJEXT):  \
-	Graph/flow_graph/$(am__dirstamp) \
-	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_graph/rpath.$(OBJEXT): Graph/flow_graph/$(am__dirstamp) \
-	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
-Graph/flow_graph/lpath.$(OBJEXT): Graph/flow_graph/$(am__dirstamp) \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
 Graph/flow_graph/path.$(OBJEXT): Graph/flow_graph/$(am__dirstamp) \
 	Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
@@ -682,6 +656,9 @@ Graph/pre_graph/exon_meta.$(OBJEXT): Graph/pre_graph/$(am__dirstamp) \
 Graph/pre_graph/exon_group.$(OBJEXT): Graph/pre_graph/$(am__dirstamp) \
 	Graph/pre_graph/$(DEPDIR)/$(am__dirstamp)
 Graph/pre_graph/pre_graph.$(OBJEXT): Graph/pre_graph/$(am__dirstamp) \
+	Graph/pre_graph/$(DEPDIR)/$(am__dirstamp)
+Graph/pre_graph/exon_group_count.$(OBJEXT):  \
+	Graph/pre_graph/$(am__dirstamp) \
 	Graph/pre_graph/$(DEPDIR)/$(am__dirstamp)
 Options/$(am__dirstamp):
 	@$(MKDIR_P) Options
@@ -700,6 +677,8 @@ mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 	-rm -f Controller/*.$(OBJEXT)
 	-rm -f Graph/flow_graph/*.$(OBJEXT)
+	-rm -f Graph/flow_graph/build/*.$(OBJEXT)
+	-rm -f Graph/flow_graph/coverage/*.$(OBJEXT)
 	-rm -f Graph/flow_manager/*.$(OBJEXT)
 	-rm -f Graph/flow_manager/path_finder/*.$(OBJEXT)
 	-rm -f Graph/output/*.$(OBJEXT)
@@ -718,34 +697,24 @@ include Controller/$(DEPDIR)/bam_controller.Po
 include Controller/$(DEPDIR)/base_controller.Po
 include Graph/flow_graph/$(DEPDIR)/arc_back_bridge.Po
 include Graph/flow_graph/$(DEPDIR)/arc_bridge.Po
-include Graph/flow_graph/$(DEPDIR)/capacity_mean.Po
-include Graph/flow_graph/$(DEPDIR)/count_raw_edge.Po
-include Graph/flow_graph/$(DEPDIR)/count_raw_node.Po
+include Graph/flow_graph/$(DEPDIR)/arc_identifier.Po
 include Graph/flow_graph/$(DEPDIR)/edge_length.Po
 include Graph/flow_graph/$(DEPDIR)/exon_edge.Po
-include Graph/flow_graph/$(DEPDIR)/lpath.Po
 include Graph/flow_graph/$(DEPDIR)/path.Po
 include Graph/flow_graph/$(DEPDIR)/path_evidence.Po
-include Graph/flow_graph/$(DEPDIR)/region.Po
-include Graph/flow_graph/$(DEPDIR)/rpath.Po
+include Graph/flow_graph/build/$(DEPDIR)/count_raw_edge.Po
+include Graph/flow_graph/build/$(DEPDIR)/count_raw_node.Po
+include Graph/flow_graph/build/$(DEPDIR)/region.Po
+include Graph/flow_graph/coverage/$(DEPDIR)/capacity_mean.Po
+include Graph/flow_graph/coverage/$(DEPDIR)/flow_series.Po
 include Graph/flow_manager/$(DEPDIR)/base_manager_buildgraph.Po
 include Graph/flow_manager/$(DEPDIR)/base_manager_flow_handler.Po
-include Graph/flow_manager/$(DEPDIR)/basic_coverage_flow.Po
 include Graph/flow_manager/$(DEPDIR)/mincost_flow_base.Po
-include Graph/flow_manager/$(DEPDIR)/mincost_flow_linear_limit.Po
 include Graph/flow_manager/$(DEPDIR)/mincost_flow_square.Po
 include Graph/flow_manager/$(DEPDIR)/mincost_flow_square_hcost.Po
-include Graph/flow_manager/$(DEPDIR)/mincost_flow_square_limit.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/exhaustive_enum.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/multi_path_heuristic.Po
 include Graph/flow_manager/path_finder/$(DEPDIR)/path_finder.Po
 include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic.Po
 include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic_evidence_length_penalty.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic_evidence_offset.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic_evidence_penalty.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic_kmax_length.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic_longest_max.Po
-include Graph/flow_manager/path_finder/$(DEPDIR)/single_path_heuristic_no_neighbour.Po
 include Graph/output/$(DEPDIR)/alternative_transcript_collection.Po
 include Graph/output/$(DEPDIR)/transcript.Po
 include Graph/output/$(DEPDIR)/transcript_unsecurity.Po
@@ -755,6 +724,7 @@ include Graph/overlap_graph/$(DEPDIR)/contained_node.Po
 include Graph/overlap_graph/$(DEPDIR)/overlap_node.Po
 include Graph/overlap_graph/$(DEPDIR)/range_helper.Po
 include Graph/pre_graph/$(DEPDIR)/exon_group.Po
+include Graph/pre_graph/$(DEPDIR)/exon_group_count.Po
 include Graph/pre_graph/$(DEPDIR)/exon_meta.Po
 include Graph/pre_graph/$(DEPDIR)/pre_graph.Po
 include Logger/$(DEPDIR)/logger.Po
@@ -769,6 +739,7 @@ include Reader/Chromosome/$(DEPDIR)/connection_iterator.Po
 include Reader/Chromosome/$(DEPDIR)/exon.Po
 include Reader/Chromosome/$(DEPDIR)/interval.Po
 include Reader/Chromosome/$(DEPDIR)/raw_atom.Po
+include Reader/Chromosome/$(DEPDIR)/raw_series_counts.Po
 include Reader/Chromosome/$(DEPDIR)/read.Po
 include Reader/Chromosome/$(DEPDIR)/read_collection.Po
 
@@ -907,6 +878,10 @@ distclean-generic:
 	-rm -f Controller/$(am__dirstamp)
 	-rm -f Graph/flow_graph/$(DEPDIR)/$(am__dirstamp)
 	-rm -f Graph/flow_graph/$(am__dirstamp)
+	-rm -f Graph/flow_graph/build/$(DEPDIR)/$(am__dirstamp)
+	-rm -f Graph/flow_graph/build/$(am__dirstamp)
+	-rm -f Graph/flow_graph/coverage/$(DEPDIR)/$(am__dirstamp)
+	-rm -f Graph/flow_graph/coverage/$(am__dirstamp)
 	-rm -f Graph/flow_manager/$(DEPDIR)/$(am__dirstamp)
 	-rm -f Graph/flow_manager/$(am__dirstamp)
 	-rm -f Graph/flow_manager/path_finder/$(DEPDIR)/$(am__dirstamp)
@@ -934,7 +909,7 @@ clean: clean-am
 clean-am: clean-binPROGRAMS clean-generic mostlyclean-am
 
 distclean: distclean-am
-	-rm -rf ./$(DEPDIR) Controller/$(DEPDIR) Graph/flow_graph/$(DEPDIR) Graph/flow_manager/$(DEPDIR) Graph/flow_manager/path_finder/$(DEPDIR) Graph/output/$(DEPDIR) Graph/overlap_graph/$(DEPDIR) Graph/pre_graph/$(DEPDIR) Logger/$(DEPDIR) Options/$(DEPDIR) Reader/$(DEPDIR) Reader/Chromosome/$(DEPDIR)
+	-rm -rf ./$(DEPDIR) Controller/$(DEPDIR) Graph/flow_graph/$(DEPDIR) Graph/flow_graph/build/$(DEPDIR) Graph/flow_graph/coverage/$(DEPDIR) Graph/flow_manager/$(DEPDIR) Graph/flow_manager/path_finder/$(DEPDIR) Graph/output/$(DEPDIR) Graph/overlap_graph/$(DEPDIR) Graph/pre_graph/$(DEPDIR) Logger/$(DEPDIR) Options/$(DEPDIR) Reader/$(DEPDIR) Reader/Chromosome/$(DEPDIR)
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-tags
@@ -980,7 +955,7 @@ install-ps-am:
 installcheck-am:
 
 maintainer-clean: maintainer-clean-am
-	-rm -rf ./$(DEPDIR) Controller/$(DEPDIR) Graph/flow_graph/$(DEPDIR) Graph/flow_manager/$(DEPDIR) Graph/flow_manager/path_finder/$(DEPDIR) Graph/output/$(DEPDIR) Graph/overlap_graph/$(DEPDIR) Graph/pre_graph/$(DEPDIR) Logger/$(DEPDIR) Options/$(DEPDIR) Reader/$(DEPDIR) Reader/Chromosome/$(DEPDIR)
+	-rm -rf ./$(DEPDIR) Controller/$(DEPDIR) Graph/flow_graph/$(DEPDIR) Graph/flow_graph/build/$(DEPDIR) Graph/flow_graph/coverage/$(DEPDIR) Graph/flow_manager/$(DEPDIR) Graph/flow_manager/path_finder/$(DEPDIR) Graph/output/$(DEPDIR) Graph/overlap_graph/$(DEPDIR) Graph/pre_graph/$(DEPDIR) Logger/$(DEPDIR) Options/$(DEPDIR) Reader/$(DEPDIR) Reader/Chromosome/$(DEPDIR)
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

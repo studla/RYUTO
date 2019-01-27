@@ -6,26 +6,25 @@
  */
 
 #include "single_path_heuristic.h"
+#include "../../flow_graph/coverage/flow_series.h"
+#include "Options/options.h"
 
 #include <lemon/lgf_writer.h>
 
 single_path_heuristic::single_path_heuristic(ListDigraph& wc,
         ListDigraph::Node& s,
         ListDigraph::Node& t,
-        ListDigraph::ArcMap<capacity_type>& cfc,
-        ListDigraph::ArcMap<capacity_mean> &mc, 
-        ListDigraph::ArcMap<exon_edge>& ces,
-        ListDigraph::ArcMap<edge_types::edge_type>& cet,
-        ListDigraph::ArcMap<edge_length> &cel,
+        ListDigraph::ArcMap<flow_series>& fc,   
+        ListDigraph::ArcMap<arc_identifier> &ai,
         ListDigraph::NodeMap<unsigned int>& cni,
         ListDigraph::ArcMap<arc_bridge>& kp,
         ListDigraph::ArcMap<arc_back_bridge>& kbp,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_in,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_out,
         ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
-        ListDigraph::NodeMap< unsecurity_id > &unsecurityId,
+        ListDigraph::NodeMap< unsecurity_id> &unsecurityId,
+        std::set<int>& input_ids,
+        std::map<int, alternative_transcript_collection>& transcripts,
         unsigned int size) 
-: path_finder(wc, s, t, cfc, mc, ces, cet, cel, cni,kp, kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size) {
+: path_finder(wc, s, t, fc, ai, cni,kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts, size) {
 }
 
 single_path_heuristic::~single_path_heuristic() {
@@ -33,18 +32,21 @@ single_path_heuristic::~single_path_heuristic() {
 
 
 
-void single_path_heuristic::extract_transcripts(alternative_transcript_collection& results) {
+void single_path_heuristic::extract_transcripts(alternative_transcript_collection& results, int guiding) {
     
     while (true) {
         
-//       logger::Instance()->debug("Extract Path\n");
-//       digraphWriter(wc, std::cout)
-//            .arcMap("edge_specifier", ces)
-//            .arcMap("edge_type", cet)
-//            .arcMap("flow", cfc)
-//            .node("source", s)
-//            .node("drain", t)
-//            .run();  
+       #ifdef ALLOW_DEBUG
+       if (options::Instance()->is_debug()) {
+            logger::Instance()->debug("Extract Path " + std::to_string(guiding) + "\n");
+            digraphWriter(wc, std::cout)
+                .arcMap("Identifier", ai)
+                .arcMap("Flow/Capacity", fc)
+                .node("Source", s)
+                .node("Drain", t)
+                .run(); 
+       }
+       #endif
         
         ListDigraph::ArcIt has_arc(wc);
         if ( has_arc == INVALID ) {
@@ -54,7 +56,7 @@ void single_path_heuristic::extract_transcripts(alternative_transcript_collectio
 
         // we find the max min path of the possible paths
         std::deque<ListDigraph::Arc> path;
-        find_min_max(path);
+        find_min_max(path, guiding);
         
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Path found " + std::to_string( path.size() )+ " ");
@@ -64,17 +66,25 @@ void single_path_heuristic::extract_transcripts(alternative_transcript_collectio
         logger::Instance()->debug("\n");
         #endif
         
-        capacity_type cap = add_path_to_collection(path, results, wc, cfc, ces, cet, kp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+        add_path_to_collection(path, results, wc, ai, fc, kp, unsecurityArc, unsecurityId, input_ids);
       
+        gmap<int, capacity_type> capacities;
+        for (gmap<int, transcript::series_struct>::iterator iss = results.transcripts.back()->series.begin(); iss != results.transcripts.back()->series.end(); ++iss) {
+            capacities[iss->first] = iss->second.flow;
+        }
+        
         // now we need to remove this path from the copy
-        capacity_mean mean = remove_full_path(path, cap, wc, cfc, mc, ces, cet, cel, kp, kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId); 
-        results.transcripts.back()->mean = mean.mean;
-        results.transcripts.back()->score = mean.compute_score();
+        flow_series flows = remove_full_path(path, capacities, guiding, wc, ai, fc, kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts[guiding]);
+
+        for (std::set<int>::iterator iii =  input_ids.begin(); iii != input_ids.end(); ++iii) {    
+            results.transcripts.back()->series[*iii].mean = flows.get_mean(*iii).mean;
+            results.transcripts.back()->series[*iii].score = flows.get_mean(*iii).compute_score();
+        }
     }
     
 }
 
-void single_path_heuristic::find_min_max(std::deque<ListDigraph::Arc> &path) {
+void single_path_heuristic::find_min_max(std::deque<ListDigraph::Arc> &path, int guiding) {
     
     // logging stuff to remove
 //        logger::Instance()->debug("Min Max Pre \n"); 
@@ -173,15 +183,15 @@ void single_path_heuristic::find_min_max(std::deque<ListDigraph::Arc> &path) {
                     continue;
                 }
                 
-                max = cfc[a];
+                max = fc[a].get_flow(guiding);
             }
-            capacity_type min_cap = std::min(cfc[a], max);
+            capacity_type min_cap = std::min(fc[a].get_flow(guiding), max);
             
             dyn_info new_path;
             new_path.arc = max_arc; // this is fine as empty for source node
             new_path.back_node = i;
             new_path.cap = min_cap;
-            new_path.last_cap = std::max(cfc[a], last_cap_max);
+            new_path.last_cap = std::max(fc[a].get_flow(guiding), last_cap_max);
             
             unsigned int j = tsi[wc.target(a)];
             min_max[j].insert(std::make_pair(wc.id(a), new_path));

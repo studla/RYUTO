@@ -36,8 +36,8 @@ public:
     
     virtual unsigned int get_num_connected(const std::string &chromosome) = 0;
     
-    virtual void populate_next_single(const std::string &chrom_name, connected *ob, unsigned int &bam_count_absolute, pre_graph* raw, exon_meta* meta) = 0;
-    virtual bool populate_next_group(const std::string &chrom_name, greader_list<connected> &all_connected, exon_meta* meta, unsigned int &bam_count_absolute) = 0;
+    virtual void populate_next_single(const std::string &chrom_name, connected *ob, pre_graph* raw, exon_meta* meta) = 0;
+    virtual bool populate_next_group(const std::string &chrom_name, greader_list<connected> &all_connected, exon_meta* meta) = 0;
     
     virtual void discard(const std::string &chromosome) = 0;
      

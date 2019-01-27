@@ -568,9 +568,13 @@ Reader/bam_reader.o: Reader/bam_reader.cc /usr/include/stdc-predef.h \
  Reader/Chromosome/read.h \
  Reader/Chromosome/../../Datatype_Templates/maps.h \
  /homes/biertruck/thomas/Libraries//include/boost/unordered_map.hpp \
+ /usr/include/c++/7/unordered_map /usr/include/c++/7/bits/hashtable.h \
+ /usr/include/c++/7/bits/hashtable_policy.h \
+ /usr/include/c++/7/bits/unordered_map.h \
  Reader/Chromosome/read_collection.h \
  Reader/Chromosome/../../Options/options.h \
- Reader/Chromosome/../../Logger/logger.h Reader/Chromosome/interval.h \
+ Reader/Chromosome/../../Logger/logger.h \
+ Reader/Chromosome/raw_series_counts.h Reader/Chromosome/interval.h \
  Reader/Chromosome/connection_iterator.h Reader/Chromosome/chromosome.h \
  Reader/../Datatype_Templates/reader_list.h \
  Reader/../Datatype_Templates/maps.h \
@@ -603,6 +607,7 @@ Reader/bam_reader.o: Reader/bam_reader.cc /usr/include/stdc-predef.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/exon_group.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/paired_exon_group.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/misc_types.h \
+ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/maps.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/exon_edge.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Datatype_Templates/misc_types.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Datatype_Templates/boost_bitset_hash.h \
@@ -628,17 +633,20 @@ Reader/bam_reader.o: Reader/bam_reader.cc /usr/include/stdc-predef.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../pre_graph/../../Logger/logger.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Logger/logger.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/lazy.h \
+ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/exon_group_count.h \
  Reader/../Graph/pre_graph/../overlap_graph/contained_node.h \
  Reader/../Graph/pre_graph/exon_group.h \
  Reader/../Graph/pre_graph/exon_meta.h \
  /homes/biertruck/thomas/Libraries//include/htslib/sam.h \
  /homes/biertruck/thomas/Libraries//include/htslib/hts.h \
+ /homes/biertruck/thomas/Libraries//include/htslib/hts_defs.h \
+ /homes/biertruck/thomas/Libraries//include/htslib/hts_log.h \
  /homes/biertruck/thomas/Libraries//include/htslib/hts.h \
  Reader/Chromosome/read_collection.h \
  Reader/../Datatype_Templates/double_deque.h \
  Datatype_Templates/misc_types.h Reader/Chromosome/exon.h \
  Reader/../Datatype_Templates/move.h Reader/../Options/options.h \
- Reader/../Logger/logger.h
+ Reader/../Logger/logger.h Reader/Chromosome/raw_series_counts.h
 
 /usr/include/stdc-predef.h:
 
@@ -1976,11 +1984,21 @@ Reader/Chromosome/../../Datatype_Templates/maps.h:
 
 /homes/biertruck/thomas/Libraries//include/boost/unordered_map.hpp:
 
+/usr/include/c++/7/unordered_map:
+
+/usr/include/c++/7/bits/hashtable.h:
+
+/usr/include/c++/7/bits/hashtable_policy.h:
+
+/usr/include/c++/7/bits/unordered_map.h:
+
 Reader/Chromosome/read_collection.h:
 
 Reader/Chromosome/../../Options/options.h:
 
 Reader/Chromosome/../../Logger/logger.h:
+
+Reader/Chromosome/raw_series_counts.h:
 
 Reader/Chromosome/interval.h:
 
@@ -2050,6 +2068,8 @@ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/paired_exon_group.h:
 
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/misc_types.h:
 
+Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/maps.h:
+
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/exon_edge.h:
 
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Datatype_Templates/misc_types.h:
@@ -2108,6 +2128,8 @@ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Logg
 
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/lazy.h:
 
+Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/exon_group_count.h:
+
 Reader/../Graph/pre_graph/../overlap_graph/contained_node.h:
 
 Reader/../Graph/pre_graph/exon_group.h:
@@ -2117,6 +2139,10 @@ Reader/../Graph/pre_graph/exon_meta.h:
 /homes/biertruck/thomas/Libraries//include/htslib/sam.h:
 
 /homes/biertruck/thomas/Libraries//include/htslib/hts.h:
+
+/homes/biertruck/thomas/Libraries//include/htslib/hts_defs.h:
+
+/homes/biertruck/thomas/Libraries//include/htslib/hts_log.h:
 
 /homes/biertruck/thomas/Libraries//include/htslib/hts.h:
 
@@ -2133,3 +2159,5 @@ Reader/../Datatype_Templates/move.h:
 Reader/../Options/options.h:
 
 Reader/../Logger/logger.h:
+
+Reader/Chromosome/raw_series_counts.h:

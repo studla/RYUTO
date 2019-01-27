@@ -13,9 +13,8 @@
 #include "../../Logger/logger.h"
 #include "../../Options/options.h"
 
-raw_atom::raw_atom() : count(0), paired_count(0), length_filtered(false), source_evidence(false),
-        drain_evidence(false), reference_atom(false), killed(false),
-        total_lefts(0), total_rights(0)
+raw_atom::raw_atom() : length_filtered(false), source_evidence(false),
+        drain_evidence(false), reference_atom(false), has_coverage(false)
 {
     length_filtered = options::Instance()->is_min_readlength_set();
 }

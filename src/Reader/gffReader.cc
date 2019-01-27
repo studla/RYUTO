@@ -562,7 +562,7 @@ void gffReader::add_one_into_chromosome(std::deque<transcript_info *> &region, c
                     } else {
                         atom = *atom_it;
                     }
-                    atom->count = 1;
+                    atom->has_coverage = true;
                     
                     collected.clear();
                 }
@@ -588,7 +588,7 @@ void gffReader::add_one_into_chromosome(std::deque<transcript_info *> &region, c
             } else {
                 atom = *atom_it;
             }
-            atom->count = 1;
+            atom->has_coverage = true;
 
             collected.clear();
         }

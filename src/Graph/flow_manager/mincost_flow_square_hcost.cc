@@ -7,7 +7,7 @@
 
 #include "mincost_flow_square_hcost.h"
 
-mincost_flow_square_hcost::mincost_flow_square_hcost(pre_graph* raw, exon_meta* meta, const std::string &chromosome) : mincost_flow_base(raw, meta, chromosome) { 
+mincost_flow_square_hcost::mincost_flow_square_hcost(pre_graph* raw, exon_meta* meta, const std::string &chromosome, std::set<int> &ids) : mincost_flow_base(raw, meta, chromosome, ids) { 
 }
 
 

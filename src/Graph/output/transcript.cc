@@ -7,7 +7,7 @@
 
 #include "transcript.h"
 
-transcript::transcript() : flow(0), mean(0), score(0), cycle_id_in(0), cycle_id_out(0), guided(false) {
+transcript::transcript() : cycle_id_in(0), cycle_id_out(0), guided(false) {
 }
 
 
@@ -18,9 +18,12 @@ void transcript::join(transcript* o) {
     
     found_edge.join_edge(o->found_edge);
 
-    flow = (flow + o->flow) / 2;
-    mean = (mean + o->mean) / 2;
-    score = (score + o->score) / 2;
+    for (gmap<int, series_struct>::iterator iss = series.begin(); iss != series.end(); ++iss) {
+        int id = iss->first;
+        iss->second.flow = (iss->second.flow + o->series[id].flow) / 2;
+        iss->second.mean = (iss->second.mean + o->series[id].mean) / 2;
+        iss->second.score = (iss->second.score + o->series[id].score) / 2;
+    }
     length += o->length;
 
     for(std::deque<transcript_unsecurity>::iterator ui = o->unsecurity_id.begin(); ui != o->unsecurity_id.end(); ++ui) {
@@ -49,25 +52,25 @@ void transcript::join(transcript* o) {
 
 void transcript::print(std::ostream &os) {
     
-    os << std::to_string(cycle_id_in) << "\t" << std::to_string(cycle_id_out) << "\t";
-    os << found_edge.to_string() << "\t" << std::to_string(flow) << "\t";
-    
-    std::deque<transcript_unsecurity>::iterator it = unsecurity_id.begin();
-    
-    if (it == unsecurity_id.end()) {
-    
-        os << "-";
-       
-    } else {
-        
-        os << std::to_string(it->position);
-        ++it;
-        for(; it!= unsecurity_id.end(); ++it) {
-            os << ", " << std::to_string(it->position) << "(" << it->evidenced << ")" ;
-        }
-    }
-    
-     os << "\n";
+//    os << std::to_string(cycle_id_in) << "\t" << std::to_string(cycle_id_out) << "\t";
+//    os << found_edge.to_string() << "\t" << std::to_string(flow) << "\t";
+//    
+//    std::deque<transcript_unsecurity>::iterator it = unsecurity_id.begin();
+//    
+//    if (it == unsecurity_id.end()) {
+//    
+//        os << "-";
+//       
+//    } else {
+//        
+//        os << std::to_string(it->position);
+//        ++it;
+//        for(; it!= unsecurity_id.end(); ++it) {
+//            os << ", " << std::to_string(it->position) << "(" << it->evidenced << ")" ;
+//        }
+//    }
+//    
+//     os << "\n";
     
 }
 
@@ -101,17 +104,18 @@ void transcript::finalize_borders(exon_meta* meta) {
     exons.push_back(std::make_pair(region_start, region_end));
     length += region_end - region_start + 1;
     
-    fpkm = mean / (float)(2 * meta->avrg_read_length) / (float) (meta->absolute_reads) * 1000000000;
-    
+    for (gmap<int, series_struct>::iterator iss = series.begin(); iss != series.end(); ++iss) {
+        iss->second.fpkm = iss->second.mean / (float)(2 * meta->avrg_read_length) / (float) (meta->absolute_reads[iss->first]) * 1000000000;
+    }
     chromosome = meta->chromosome;
     strand = meta->strand;
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Finalize: "+found_edge.to_string()+ " l " + std::to_string(length) + " f " + std::to_string(flow) + " m " + std::to_string(mean) + " s " + std::to_string(score) +"\n");
+    logger::Instance()->debug("Finalize: "+found_edge.to_string() + "\n");
     #endif
 }
 
-void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigned int trans_id) {
+void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigned int trans_id, int main_input_id) {
         
     // print transcript line first
     os << chromosome << "\t" << "ryuto" << "\t" << "transcript" << "\t";
@@ -120,10 +124,22 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
     os << strand << "\t" << "." << "\t";
     os << "gene_id \"fres." << gene_id << "\"; ";
     os << "transcript_id \"fres." << gene_id << "." << std::to_string(trans_id) << "\"; ";
-    os << "FPKM \"" << std::to_string(fpkm) << "\"; ";
-    os << "cov \"" << std::to_string(mean) << "\"; ";
-    os << "uniform_cov \"" << std::to_string(flow) << "\";";
+    os << "FPKM \"" << std::to_string(series[main_input_id].fpkm) << "\"; ";
+    os << "cov \"" << std::to_string(series[main_input_id].mean) << "\"; ";
+    os << "uniform_cov \"" << std::to_string(series[main_input_id].flow) << "\";";
     
+    for (gmap<int, series_struct>::iterator iss = series.begin(); iss != series.end(); ++iss) {
+        int id = iss->first;
+        
+        if (id == main_input_id) {
+            continue;
+        }
+        
+        os << "FPKM_" << std::to_string(id) << " \"" << std::to_string(series[id].fpkm) << "\"; ";
+        os << "cov_" << std::to_string(id) << " \"" << std::to_string(series[id].mean) << "\"; ";
+        os << "uniform_cov_" << std::to_string(id) << " \"" << std::to_string(series[id].flow) << "\";";
+    }
+
     os << "unsecurities \"";
     std::deque<transcript_unsecurity>::iterator u_it = unsecurity_id.begin();
     if (u_it == unsecurity_id.end()) {
@@ -147,7 +163,7 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
         
         os << "gene_id \"fres." << gene_id << "\"; ";
         os << "transcript_id \"fres." << gene_id << "." << std::to_string(trans_id) << "\"; ";
-        os << "FPKM \"" << std::to_string(fpkm) << "\"; ";
+//        os << "FPKM \"" << std::to_string(fpkm) << "\"; ";
 
         if (cycle_id_in != 0) {
            os << "cycle_in \"fres." << gene_id << "." << std::to_string(trans_id) << "/" << std::to_string(cycle_id_in) << "\"; ";
@@ -155,8 +171,8 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
         if (cycle_id_out != 0) {
            os << "cycle_out \"fres." << gene_id << "." << std::to_string(trans_id) << "/" << std::to_string(cycle_id_out) << "\"; ";
         }
-        os << "cov \"" << std::to_string(mean) << "\"; ";
-        os << "uniform_cov \"" << std::to_string(flow) << "\"; ";
+//        os << "cov \"" << std::to_string(mean) << "\"; ";
+//        os << "uniform_cov \"" << std::to_string(flow) << "\"; ";
         
         if (guided) {
             os << "reference_id \"" << guide_reference << "\"; ";

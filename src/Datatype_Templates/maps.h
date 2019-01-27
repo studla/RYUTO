@@ -12,9 +12,15 @@
 #include <boost/functional/hash/extensions.hpp>
 #include <functional>
 #include <map>
+#include <unordered_map>
 
 template <class Key, class Mapped>
 class gmap : public boost::unordered_map<Key, Mapped, std::hash<Key> > {
+    
+};
+
+template <class Key, class Mapped>
+class gfmap : public std::map<Key, Mapped > {
     
 };
 

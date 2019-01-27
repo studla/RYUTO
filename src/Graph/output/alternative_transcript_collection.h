@@ -21,12 +21,16 @@ public:
     virtual ~alternative_transcript_collection();
     
     graph_list<lazy<transcript> > transcripts;
+    int input_main_id;
+    
+    std::map<int, capacity_type> total_flow_error;
+    capacity_type total_filtered_flow;
     
     void print(std::ostream &os);
     void print_gtf(std::ostream &os, std::string &gene_id);
     
     void finalize_borders(exon_meta* meta); 
-    void filter_transcripts();
+    void filter_transcripts(int id);
     
     bool empty();
     

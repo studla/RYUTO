@@ -8,7 +8,7 @@
 #include "connected.h"
 #include "exon.h"
 
-connected::connected() : bam_count(0), intel_count(0), avg_split(0), guided(false) {
+connected::connected() : intel_count(0), avg_split(0), guided(false) {
 }
 
 

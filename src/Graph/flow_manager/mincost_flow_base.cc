@@ -8,7 +8,7 @@
 #include "mincost_flow_base.h"
 #include <math.h>
 
-mincost_flow_base::mincost_flow_base(pre_graph* raw, exon_meta* meta, const std::string &chromosome) : base_manager(raw, meta, chromosome) { 
+mincost_flow_base::mincost_flow_base(pre_graph* raw, exon_meta* meta, const std::string &chromosome, std::set<int> &ids) : base_manager(raw, meta, chromosome, ids) { 
 }
 
 
@@ -24,35 +24,36 @@ bool const mincost_flow_base::expand_exon_nodes() {
 }
 
 void mincost_flow_base::initialize_source_drain_arc(const ListDigraph::Arc &arc) {
-    capacity[arc] = 0;
+   // nothing needed to do, we still keep this stub
 }
 
-void mincost_flow_base::create_node_capacities(ListDigraph::Arc &arc, region &r) {
-    //capacity[arc] = r.get_average();
-    capacity[arc] = r.get_max();          
-}
-
-void mincost_flow_base::create_edge_capacities(ListDigraph::Arc& arc, region &r) {
-    capacity[arc] = r.get_average();
-    //capacity[arc] = r.get_max();
-}
-
-
-void mincost_flow_base::finalize_flow_graph() {
-    // the source and drain nodes have infinity cap, we do that later in the transformation process
+void mincost_flow_base::create_node_capacities(ListDigraph::Arc &arc, flow_series &r) {
        
+}
+
+void mincost_flow_base::create_edge_capacities(ListDigraph::Arc& arc, flow_series &r) {
+    // nothing needed to do, we still keep this stub
+}
+
+
+void mincost_flow_base::finalize_flow_graph(int id) {
+    // nothing needed to do, we still keep this stub     
 }
 
 // ################## functions for flow creation ##################
 
 
-void mincost_flow_base::compute_flow() {
+void mincost_flow_base::compute_flow(int id) {
     
     // we try to find the maximum flow that needs to be pushed through all
     ListDigraph::NodeMap<unsigned_capacity_type> ex_flow(g);
-    capacity_type max_supply = find_exogenous_flow(ex_flow);
+    capacity_type max_supply = find_exogenous_flow(ex_flow, id);
     init_variables(max_supply);
     
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Max Supply " + std::to_string(max_supply) + ".\n");
+    #endif
+
     // we first create the offset graph
     ListDigraph::NodeMap<ListDigraph::Node > node_ref(g);
     ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > arc_ref_forward(g);
@@ -64,11 +65,11 @@ void mincost_flow_base::compute_flow() {
     ListDigraph::NodeMap<unsigned_capacity_type> supply(og);
     ListDigraph::ArcMap<unsigned_capacity_type> flowmap(og);
     
-    create_initial_offset_graph(ex_flow, node_ref, arc_ref_forward, arc_ref_backward, max_supply, og, upper, cost, supply);
+    create_initial_offset_graph(ex_flow, node_ref, arc_ref_forward, arc_ref_backward, max_supply, og, upper, cost, supply, id);
     
     bool cont = true;
     while (cont) {
-        
+                
         #ifdef ALLOW_DEBUG
         if (options::Instance()->is_debug()) {
             ListDigraph::ArcMap<std::string> afwd(g);
@@ -85,37 +86,36 @@ void mincost_flow_base::compute_flow() {
 
             logger::Instance()->debug("Enter Flow Loop.\n");
             digraphWriter(g, std::cout)
-                    .arcMap("edge", edge_specifier)
-                    .arcMap("Cap", capacity)
+                    .arcMap("ai", ai)
                     .arcMap("fwd", afwd)
                     .arcMap("bwd", abwd)
                     .node("source", s)
                     .node("drain", t)
                     .run();
 
-            digraphWriter(og, std::cout)
-                    .arcMap("Cap", upper)
-                    .arcMap("Cost", cost)
-                    .arcMap("Flow", flowmap)
-                    .nodeMap("Supply", supply)
-                    .run();
+//            digraphWriter(og, std::cout)
+//                    .arcMap("Cap", upper)
+//                    .arcMap("Cost", cost)
+//                    .arcMap("Flow", flowmap)
+//                    .nodeMap("Supply", supply)
+//                    .run();
         }
         #endif
         
         // we start each cycle with computing the flow in the offset graph
         push_mincost_flow(og, upper, cost, supply, flowmap);
         
-         #ifdef ALLOW_DEBUG
-        if (options::Instance()->is_debug()) {
-            logger::Instance()->debug("Flow Step.\n");
-            digraphWriter(og, std::cout)
-                    .arcMap("Cap", upper)
-                    .arcMap("Cost", cost)
-                    .arcMap("Flow", flowmap)
-                    .nodeMap("Supply", supply)
-                    .run();
-         }
-        #endif
+//         #ifdef ALLOW_DEBUG
+//        if (options::Instance()->is_debug()) {
+//            logger::Instance()->debug("Flow Step.\n");
+//            digraphWriter(og, std::cout)
+//                    .arcMap("Cap", upper)
+//                    .arcMap("Cost", cost)
+//                    .arcMap("Flow", flowmap)
+//                    .nodeMap("Supply", supply)
+//                    .run();
+//         }
+//        #endif
         
         cont = modify_repeat(node_ref, arc_ref_forward, arc_ref_backward, max_supply, og, upper, cost, supply, flowmap);
     }
@@ -132,23 +132,23 @@ void mincost_flow_base::compute_flow() {
          }
         #endif
     
-    transform_flow_to_orig(node_ref, arc_ref_forward, arc_ref_backward, og, flowmap);
+    transform_flow_to_orig(node_ref, arc_ref_forward, arc_ref_backward, og, flowmap, id);
 
 }
 
-capacity_type mincost_flow_base::find_exogenous_flow(ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow_map) {
+capacity_type mincost_flow_base::find_exogenous_flow(ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow_map, int id) {
     
     capacity_type max_supply;
     for (ListDigraph::NodeIt n(g); n != INVALID; ++n) {
         
         capacity_type in = 0;
         for (ListDigraph::InArcIt a(g, n); a!=INVALID; ++a) {
-            in += capacity[a];
+            in += fs[a].series[id].capacity;
         }
         
         capacity_type out = 0;
         for (ListDigraph::OutArcIt a(g, n); a!=INVALID; ++a) {
-            out += capacity[a];
+            out += fs[a].series[id].capacity;
         }
         
         unsigned_capacity_type ex_flow = in - out;
@@ -170,7 +170,8 @@ void mincost_flow_base::create_initial_offset_graph(
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
             ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply) {
+            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
+            int id) {
     
     // we need star supply nodes, create them first
     ListDigraph::Node sstar = og.addNode();
@@ -231,7 +232,7 @@ void mincost_flow_base::create_initial_offset_graph(
         ListDigraph::Node sn = node_ref[g.source(a)];
         ListDigraph::Node tn = node_ref[g.target(a)];
         
-        if (edge_type[a] == edge_types::HELPER) {
+        if (ai[a].edge_type == edge_types::HELPER) {
     
 //            logger::Instance()->debug("Arc Helper " + std::to_string(og.id(sn)) + " " + std::to_string(og.id(tn)) + "\n");
             
@@ -239,13 +240,13 @@ void mincost_flow_base::create_initial_offset_graph(
             
         } else {
             
-//            logger::Instance()->debug("Arc Norm " + std::to_string(og.id(sn)) + " " + std::to_string(og.id(tn)) + " " + std::to_string(capacity[a]) + "\n");
+            logger::Instance()->debug("Arc Norm " + std::to_string(g.id(a)) + ": " + std::to_string(og.id(sn)) + " " + std::to_string(og.id(tn)) + "\n");
             // this is the interesting case of the actual arcs
             // note that star connections have already been made
 //            logger::Instance()->debug("fwd");
-            add_offset_edge(max_supply, capacity[a], edge_specifier[a].id.count(), sn, tn, og, upper, cost, arc_ref_forward[a]);
+            add_offset_edge(max_supply, fs[a].series[id].capacity, ai[a].edge_specifier.id.count(), sn, tn, og, upper, cost, arc_ref_forward[a]);
 //            logger::Instance()->debug("bwd");
-            add_offset_edge(capacity[a], capacity[a], edge_specifier[a].id.count(), tn, sn, og, upper, cost, arc_ref_backward[a]);
+            add_offset_edge(fs[a].series[id].capacity, fs[a].series[id].capacity, ai[a].edge_specifier.id.count(), tn, sn, og, upper, cost, arc_ref_backward[a]);
         } 
     }
 }
@@ -314,35 +315,35 @@ void mincost_flow_base::transform_flow_to_orig(ListDigraph::NodeMap<ListDigraph:
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_forward,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_backward,
             ListDigraph &og,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap) {
+            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap, int id) {
     
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
-        flow[a] = capacity[a];
+        fs[a].series[id].flow = fs[a].series[id].capacity;
         for (std::deque< ListDigraph::Arc>::iterator fi = arc_ref_forward[a].begin(); fi != arc_ref_forward[a].end(); ++fi) {
-            flow[a] += flowmap[*fi];
+            fs[a].series[id].flow += flowmap[*fi];
         }
         for (std::deque< ListDigraph::Arc>::iterator fi = arc_ref_backward[a].begin(); fi != arc_ref_backward[a].end(); ++fi) {
-            flow[a] -= flowmap[*fi];
+            fs[a].series[id].flow -= flowmap[*fi];
         }
         
         // we are done for normal nodes
         // but we need to DAG-ify backlinks
-        if (edge_type[a] == edge_types::BACKLINK) {
+        if (ai[a].edge_type == edge_types::BACKLINK) {
             
-            capacity_type max_cap = flow[a];
+            capacity_type max_cap = fs[a].series[id].flow;
             ListDigraph::Node in = g.source(a);
             ListDigraph::Node out = g.target(a);
             
-            unsigned int cycle_id = cycle_id_in[a];
+            unsigned int cycle_id = ai[a].cycle_id_in;
             g.erase(a);
             ListDigraph::Arc ns = g.addArc(s, out);
-            flow[ns] = max_cap;
+            fs[ns].series[id].flow = max_cap;
             ListDigraph::Arc nt = g.addArc(in, t);
-            flow[nt] = max_cap;
-            edge_type[ns] = edge_types::HELPER;
-            cycle_id_in[ns] = cycle_id;
-            edge_type[nt] = edge_types::HELPER;
-            cycle_id_out[nt] = cycle_id;
+            fs[nt].series[id].flow = max_cap;
+            ai[ns].edge_type = edge_types::HELPER;
+            ai[ns].cycle_id_in = cycle_id;
+            ai[nt].edge_type = edge_types::HELPER;
+            ai[nt].cycle_id_out = cycle_id;
             
         }
         
@@ -359,36 +360,4 @@ void mincost_flow_base::init_variables(capacity_type max_supply) {
 
 void mincost_flow_base::print_graph(std::ostream &os) {
    
-    //TODO
-    
-    if (meta->size != 1) {
-        
-        ListDigraph::ArcMap<capacity_type> rl(g);
-        
-        for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
-            rl[a] = regions[a].total_length;
-        }
-        
-        // there is a graph!
-        digraphWriter(g, os)
-            .arcMap("edge_specifier", edge_specifier)
-            .arcMap("edge_type", edge_type)
-            //.arcMap("edge_lengths", edge_lengths)
-            .arcMap("coverage", capacity)
-                .arcMap("Region Length", rl)
-            .node("source", s)
-            .node("drain", t)
-            .run();  
-    
-    }
-    
-     for (int j = 0; j < meta->size; j++) {
-        os << "Exon" << std::to_string(j) << " " << std::to_string(meta->exons[j].left) << "-" << std::to_string(meta->exons[j].right)  << "\n";
-    }
-    
-    
-    // also print singles
-    for( std::set<single_exon >::iterator i = single_exons.begin(); i != single_exons.end(); ++i) {
-        os << "Single Exon from " << std::to_string(meta->exons[i->meta].left) << "-" << std::to_string(meta->exons[i->meta].right)  << "\n";
-    }
 }

@@ -26,9 +26,7 @@ public:
     
     rpos start;
     rpos end;
-    
-    unsigned int bam_count;
-    
+
     rcount intel_count;
     float avg_split;
     

@@ -27,22 +27,11 @@ public:
     chromosome();
     virtual ~chromosome();
 
-    // base data, only kept as long as needed
-    // greader_list<rread> reads;
-    //greader_list<interval> intervals;    
-    // greader_list<rread* > assigned_reads;
-    // rread* addRead(const rread& r);
-    //interval* addInterval(const interval& r);
-    
-    unsigned int bam_count;
-    
     rcount frag_count;
     rcount read_count;
     float average_read_lenghts;
-    
-    greader_list<std::pair<rpos, bool> > known_starts;
-    greader_list<std::pair<rpos, bool> > known_ends; 
-    
+     
+    // fixed structures from all runs, all share same data from last run
     greader_refsafe_list<exon> fossil_exons; // not ordered
     
     lazy<r_border_set<rpos> > fixed_exon_starts;
@@ -56,6 +45,9 @@ public:
     greader_list<rread > read_queue;
     greader_list<interval> interval_queue;
     std::map< std::pair<rpos, rpos>, unsigned int > splice_queue;
+    
+    greader_list<std::pair<rpos, bool> > known_starts;
+    greader_list<std::pair<rpos, bool> > known_ends; 
     
     // has guide
     bool has_guide;

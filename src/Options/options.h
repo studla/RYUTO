@@ -28,6 +28,11 @@ public:
         unknown, FF, FR, RF, RR
     };
     
+    enum delete_on : uint8_t { 
+        single, group_vote_low, group_vote_high, all
+    };
+    
+    
 private:
     
     // the singleton :)
@@ -73,12 +78,17 @@ private:
     unsigned int min_junction_anchor = 10; // filter out junctions with less length evidence than this!  (10) // ADD
     float low_edge_mark = 4;
     
+//    delete_on delete_vote = delete_on::group_vote;
+    unsigned int vote_percentage_low = 30;
+    unsigned int vote_percentage_high = 60;
+
     // Output Filter options
     unsigned int percent_filter = 0; // percent minimal value to filter final transcripts
     unsigned int capacity_filter = 0; // absolute minimal value to filter final transcripts    //internal
     float mean_filter = 4;
-    unsigned int min_single_coverage = 10; // absolute minimal value to filter final transcripts that have no introns
-    unsigned int min_transcript_length_base = 150; // absolute minimal length on assembled transcripts // ADD
+    unsigned int min_single_coverage = 20; // absolute minimal value to filter final transcripts that have no introns
+    unsigned int min_single_length = 300; // absolute minimal value to filter final transcripts that have no introns
+    unsigned int min_transcript_length_base = 200; // absolute minimal length on assembled transcripts // ADD
     unsigned int min_transcript_length_extension = 50; // absolute minimal length on assembled transcripts // ADD
     float minimal_score = 3;
     float group_mean_min = 5.5;
@@ -221,13 +231,12 @@ public:
         return strand_type;
     }
     
-    
-    unsigned int get_arc_filter() {
-        return 8;
-    }
-    
     unsigned int get_min_single_coverage() {
         return min_single_coverage;
+    }
+    
+    unsigned int get_min_single_length() {
+        return min_single_length;
     }
     
     unsigned int get_min_junction_anchor() {
@@ -306,6 +315,32 @@ public:
         return coverage_bias_limit;
     }
     
+//    delete_on get_delete_vote_option() {
+//        return delete_vote;
+//    }
+    
+//    unsigned int get_delete_vote_percentage() {
+//        return delete_vote_percentage;
+//    }
+    
+    bool vote(unsigned int vote_count, unsigned int total_count, delete_on delete_vote) {
+        bool result;
+        switch (delete_vote){
+            case all:
+                result = vote_count == total_count;
+                break;
+            case group_vote_high:
+                result = vote_count * 100 / total_count >= vote_percentage_high;
+                break;
+            case group_vote_low:
+                result = vote_count * 100 / total_count >= vote_percentage_low;
+                break;
+            case single:
+                result = vote_count > 0;
+                break;    
+        } 
+        return result;
+    }
 };
 
 #endif	/* OPTIONS_H */

@@ -9,14 +9,12 @@
 #include "../../Datatype_Templates/move.h"
 #include "chromosome.h"
 
-chromosome::chromosome() : bam_count(0), frag_count(0), read_count(0), average_read_lenghts(0), has_guide(false)  {
+chromosome::chromosome() : frag_count(0), read_count(0), average_read_lenghts(0), has_guide(false)  {
 }
 
 
 chromosome::~chromosome() {
 }
-
-//TODO:: TODO split with new type
 
 rread* chromosome::addQueuedRead(const rread& r){
     read_queue.push_back(r);
@@ -106,7 +104,7 @@ void chromosome::split_exon(rpos pos, greader_list<exon* >::iterator &it,  conne
 void chromosome::split_atom_start(raw_atom* atom, raw_atom* new_atom, const rpos &pos, exon* left) {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Split Start  " + std::to_string(pos) + "\n");
+    logger::Instance()->debug("Split Start  " + std::to_string(pos) + " " + atom->to_string() +  "\n");
     #endif
     
     // first process collected reads, their info on pairing stays intact!
@@ -123,24 +121,26 @@ void chromosome::split_atom_start(raw_atom* atom, raw_atom* new_atom, const rpos
         }
     }
     
-    rcount lefts_moved = 0;
-    for (std::map< rpos,rcount >::iterator l_it = atom->lefts->begin(); l_it != atom->lefts->end();) {
-       if ( l_it->first > pos ) {
-            // we are left of cutting point, so this reaches into new left exon       
-            lefts_moved += l_it->second;
-            // we "missuse" the holes for moved starts and ends
-            std::map< rpos,rcount >::iterator fl = atom->hole_ends->find(l_it->first);
-            if (fl == atom->hole_ends->end()) {
-                atom->hole_ends->insert(*l_it);
+    for(gmap<int, raw_series_counts>::iterator rsci = atom->raw_series.begin(); rsci != atom->raw_series.end(); ++rsci) {
+        rcount lefts_moved = 0;
+        for (std::map< rpos,rcount >::iterator l_it = rsci->second.lefts->begin(); l_it != rsci->second.lefts->end();) {
+           if ( l_it->first > pos ) {
+                // we are left of cutting point, so this reaches into new left exon       
+                lefts_moved += l_it->second;
+                // we "missuse" the holes for moved starts and ends
+                std::map< rpos,rcount >::iterator fl = rsci->second.hole_ends->find(l_it->first);
+                if (fl == rsci->second.hole_ends->end()) {
+                    rsci->second.hole_ends->insert(*l_it);
+                } else {
+                    fl->second += l_it->second;
+                }
+                l_it = rsci->second.lefts->erase(l_it);
             } else {
-                fl->second += l_it->second;
+                ++l_it;
             }
-            l_it = atom->lefts->erase(l_it);
-        } else {
-            ++l_it;
         }
+        rsci->second.total_lefts -= lefts_moved;
     }
-    atom->total_lefts -= lefts_moved;
 
     atom->reads = _MOVE(left_reads); // we use the old atom, with reads extending into the new exon removed
     // empties are possible, but since we have a cut, with new reads this will be filled up again
@@ -150,10 +150,7 @@ void chromosome::split_atom_start(raw_atom* atom, raw_atom* new_atom, const rpos
     // if the parse heuristic is used, we have already eradicated reads unfortunately
     
      // TODO: for now use overestimation
-    new_atom->count = atom->count;
-    new_atom->paired_count = atom->paired_count;
     new_atom->length_filtered = atom->length_filtered;
-    
     // set exons to split
     
     new_atom->exons = lazy<greader_refsorted_list<exon*> >();
@@ -168,7 +165,7 @@ void chromosome::split_atom_start(raw_atom* atom, raw_atom* new_atom, const rpos
 void chromosome::split_atom_end(raw_atom* atom, raw_atom* new_atom, const rpos &pos, exon* left, exon* right) {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Split End  " + std::to_string(pos) + "\n");
+    logger::Instance()->debug("Split End  " + std::to_string(pos)  + " " + atom->to_string() + "\n");
     #endif
 
      // first process collected reads, their info on pairing stays intact!
@@ -186,24 +183,26 @@ void chromosome::split_atom_end(raw_atom* atom, raw_atom* new_atom, const rpos &
     }
     
 
-    rcount rights_moved = 0;
-    for (std::map< rpos,rcount >::iterator r_it = atom->rights->begin(); r_it != atom->rights->end();) {
-       if ( r_it->first <= pos ) {
-                
-            rights_moved += r_it->second;
-            // we "missuse" the holes for moved starts and ends
-            std::map< rpos,rcount >::iterator fr = atom->hole_starts->find(r_it->first);
-            if (fr == atom->hole_starts->end()) {
-                atom->hole_starts->insert(*r_it);
+    for(gmap<int, raw_series_counts>::iterator rsci = atom->raw_series.begin(); rsci != atom->raw_series.end(); ++rsci) {
+        rcount rights_moved = 0;
+        for (std::map< rpos,rcount >::iterator r_it = rsci->second.rights->begin(); r_it != rsci->second.rights->end();) {
+           if ( r_it->first <= pos ) {
+
+                rights_moved += r_it->second;
+                // we "missuse" the holes for moved starts and ends
+                std::map< rpos,rcount >::iterator fr = rsci->second.hole_starts->find(r_it->first);
+                if (fr == rsci->second.hole_starts->end()) {
+                    rsci->second.hole_starts->insert(*r_it);
+                } else {
+                    fr->second += r_it->second;
+                }
+                r_it = rsci->second.rights->erase(r_it);
             } else {
-                fr->second += r_it->second;
+                ++r_it;
             }
-            r_it = atom->rights->erase(r_it);
-        } else {
-            ++r_it;
         }
+        rsci->second.total_rights -= rights_moved;
     }
-    atom->total_rights -= rights_moved;
     
     
     atom->reads = _MOVE(right_reads); 
@@ -212,8 +211,6 @@ void chromosome::split_atom_end(raw_atom* atom, raw_atom* new_atom, const rpos &
     // if the parse heuristic is used, we have already eradicated reads unfortunately
     
     // TODO: for now use overestimation
-    new_atom->count = atom->count;
-    new_atom->paired_count = atom->paired_count;
     new_atom->length_filtered = atom->length_filtered;
     
     // set exons to split
@@ -225,6 +222,11 @@ void chromosome::split_atom_end(raw_atom* atom, raw_atom* new_atom, const rpos &
     new_atom->exons.ref().erase(right); // just left, cause insert before
     
     // update exons with new atom
+    
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug(atom->to_string()+"\n");
+    logger::Instance()->debug(new_atom->to_string()+"\n");
+    #endif
 
 }
 
@@ -233,7 +235,7 @@ void chromosome::split_atom_end(raw_atom* atom, raw_atom* new_atom, const rpos &
 void chromosome::split_atom_singleton(raw_atom* atom, raw_atom* new_atom_left, raw_atom* new_atom_right , const rpos &pos, exon* left) {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Split Singleton  " + std::to_string(pos) + "\n");
+    logger::Instance()->debug("Split Singleton  " + std::to_string(pos) +  " " + atom->to_string() + "\n");
     #endif
     
     // first process collected reads, their info on pairing stays intact!
@@ -254,50 +256,47 @@ void chromosome::split_atom_singleton(raw_atom* atom, raw_atom* new_atom_left, r
         
     }
         
-    atom->total_rights = 0;
-    for (std::map< rpos,rcount >::iterator r_it = atom->rights->begin(); r_it != atom->rights->end();) {
+    for(gmap<int, raw_series_counts>::iterator rsci = atom->raw_series.begin(); rsci != atom->raw_series.end(); ++rsci) {
+        rsci->second.total_rights = 0;
+        for (std::map< rpos,rcount >::iterator r_it = rsci->second.rights->begin(); r_it != rsci->second.rights->end();) {
 
-       if ( r_it->first <= pos ) {
-                
-            // we "missuse" the holes for moved starts and ends
-            std::map< rpos,rcount >::iterator fr = atom->hole_starts->find(r_it->first);
-            if (fr == atom->hole_starts->end()) {
-                atom->hole_starts->insert(*r_it);
+           if ( r_it->first <= pos ) {
+
+                // we "missuse" the holes for moved starts and ends
+                std::map< rpos,rcount >::iterator fr = rsci->second.hole_starts->find(r_it->first);
+                if (fr == rsci->second.hole_starts->end()) {
+                    rsci->second.hole_starts->insert(*r_it);
+                } else {
+                    fr->second += r_it->second;
+                }
+                r_it = rsci->second.rights->erase(r_it);
             } else {
-                fr->second += r_it->second;
+               rsci->second.total_rights += r_it->second;
+                ++r_it;
             }
-            r_it = atom->rights->erase(r_it);
-        } else {
-           atom->total_rights += r_it->second;
-            ++r_it;
         }
-    }
-    atom->total_lefts = 0;
-    for (std::map< rpos,rcount >::iterator l_it = atom->lefts->begin(); l_it != atom->lefts->end();) {
+        rsci->second.total_lefts = 0;
+        for (std::map< rpos,rcount >::iterator l_it = rsci->second.lefts->begin(); l_it != rsci->second.lefts->end();) {
 
-       if ( l_it->first > pos ) {
+           if ( l_it->first > pos ) {
 
-            // we "missuse" the holes for moved starts and ends
-            std::map< rpos,rcount >::iterator fl = atom->hole_ends->find(l_it->first);
-            if (fl == atom->hole_ends->end()) {
-                atom->hole_ends->insert(*l_it);
+                // we "missuse" the holes for moved starts and ends
+                std::map< rpos,rcount >::iterator fl = rsci->second.hole_ends->find(l_it->first);
+                if (fl == rsci->second.hole_ends->end()) {
+                    rsci->second.hole_ends->insert(*l_it);
+                } else {
+                    fl->second += l_it->second;
+                }
+                l_it = rsci->second.lefts->erase(l_it);
             } else {
-                fl->second += l_it->second;
+              rsci->second.total_lefts += l_it->second;
+                ++l_it;
             }
-            l_it = atom->lefts->erase(l_it);
-        } else {
-           atom->total_lefts += l_it->second;
-            ++l_it;
         }
     }
 
     // if the parse heuristic is used, we have already eradicated reads unfortunately
-    // TODO: for now use overestimation
-    new_atom_left->count = atom->count;
-    new_atom_left->paired_count = atom->paired_count;
     new_atom_left->length_filtered = atom->length_filtered;
-    new_atom_right->count = atom->count;
-    new_atom_right->paired_count = atom->paired_count;
     new_atom_right->length_filtered = atom->length_filtered;
     
     // exon manipulation       

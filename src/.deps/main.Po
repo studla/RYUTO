@@ -108,6 +108,8 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
  /usr/include/c++/7/bits/istream.tcc \
  /homes/biertruck/thomas/Libraries//include/htslib/sam.h \
  /homes/biertruck/thomas/Libraries//include/htslib/hts.h \
+ /homes/biertruck/thomas/Libraries//include/htslib/hts_defs.h \
+ /homes/biertruck/thomas/Libraries//include/htslib/hts_log.h \
  /homes/biertruck/thomas/Libraries//include/htslib/hts.h \
  /usr/lib/gcc/x86_64-redhat-linux/7/include/omp.h Options/options.h \
  /usr/include/c++/7/vector /usr/include/c++/7/bits/stl_construct.h \
@@ -570,9 +572,14 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
  /usr/include/c++/7/map /usr/include/c++/7/bits/stl_map.h \
  /usr/include/c++/7/bits/stl_multimap.h /usr/include/c++/7/bitset \
  /usr/include/c++/7/complex /usr/include/c++/7/sstream \
- /usr/include/c++/7/bits/sstream.tcc Reader/Chromosome/read_collection.h \
+ /usr/include/c++/7/bits/sstream.tcc /usr/include/c++/7/unordered_map \
+ /usr/include/c++/7/bits/hashtable.h \
+ /usr/include/c++/7/bits/hashtable_policy.h \
+ /usr/include/c++/7/bits/unordered_map.h \
+ Reader/Chromosome/read_collection.h \
  Reader/Chromosome/../../Options/options.h \
- Reader/Chromosome/../../Logger/logger.h Reader/Chromosome/interval.h \
+ Reader/Chromosome/../../Logger/logger.h \
+ Reader/Chromosome/raw_series_counts.h Reader/Chromosome/interval.h \
  Reader/Chromosome/connection_iterator.h Reader/Chromosome/chromosome.h \
  Reader/../Datatype_Templates/reader_list.h \
  Reader/../Datatype_Templates/maps.h \
@@ -604,6 +611,7 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/exon_group.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/paired_exon_group.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/misc_types.h \
+ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/maps.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/exon_edge.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Datatype_Templates/misc_types.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Datatype_Templates/boost_bitset_hash.h \
@@ -629,6 +637,7 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../pre_graph/../../Logger/logger.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Logger/logger.h \
  Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/lazy.h \
+ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/exon_group_count.h \
  Reader/../Graph/pre_graph/../overlap_graph/contained_node.h \
  Reader/../Graph/pre_graph/exon_group.h \
  Reader/../Graph/pre_graph/exon_meta.h \
@@ -647,30 +656,37 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
  /homes/biertruck/thomas/Libraries//include/lemon/bits/path_dump.h \
  /homes/biertruck/thomas/Libraries//include/lemon/path.h \
  /homes/biertruck/thomas/Libraries//include/lemon/concepts/path.h \
- /usr/include/c++/7/unordered_set /usr/include/c++/7/bits/hashtable.h \
- /usr/include/c++/7/bits/hashtable_policy.h \
- /usr/include/c++/7/bits/unordered_set.h \
+ /usr/include/c++/7/unordered_set /usr/include/c++/7/bits/unordered_set.h \
  Controller/../Graph/flow_manager/../../Datatype_Templates/maps.h \
  Controller/../Graph/flow_manager/../../Datatype_Templates/topsort.h \
  /homes/biertruck/thomas/Libraries//include/lemon/dfs.h \
  Controller/../Graph/flow_manager/../../Datatype_Templates/move.h \
  Controller/../Graph/flow_manager/../overlap_graph/overlap_node.h \
- Controller/../Graph/flow_manager/../flow_graph/count_raw_node.h \
- Controller/../Graph/flow_manager/../flow_graph/count_raw_edge.h \
- Controller/../Graph/flow_manager/../flow_graph/../pre_graph/exon_group.h \
- Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/misc_types.h \
- Controller/../Graph/flow_manager/../flow_graph/count_raw_edge.h \
- Controller/../Graph/flow_manager/../flow_graph/region.h \
+ Controller/../Graph/flow_manager/../../Datatype_Templates/voting.h \
+ Controller/../Graph/flow_manager/../flow_graph/build/count_raw_edge.h \
+ Controller/../Graph/flow_manager/../flow_graph/build/../../pre_graph/exon_group.h \
+ Controller/../Graph/flow_manager/../flow_graph/build/../../../Datatype_Templates/misc_types.h \
+ Controller/../Graph/flow_manager/../flow_graph/build/count_raw_node.h \
+ Controller/../Graph/flow_manager/../flow_graph/build/count_raw_edge.h \
+ Controller/../Graph/flow_manager/../flow_graph/build/region.h \
  Controller/../Graph/flow_manager/../flow_graph/edge_types.h \
  Controller/../Graph/flow_manager/../flow_graph/edge_length.h \
+ Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/misc_types.h \
  Controller/../Graph/flow_manager/../pre_graph/pre_graph.h \
  Controller/../Graph/flow_manager/../output/alternative_transcript_collection.h \
  Controller/../Graph/flow_manager/../output/transcript.h \
  Controller/../Graph/flow_manager/../output/transcript_unsecurity.h \
+ Controller/../Graph/flow_manager/../output/../../Datatype_Templates/misc_types.h \
  Controller/../Graph/flow_manager/../output/../flow_graph/exon_edge.h \
+ Controller/../Graph/flow_manager/../output/../../Datatype_Templates/maps.h \
+ Controller/../Graph/flow_manager/../output/../flow_graph/coverage/flow_series.h \
+ Controller/../Graph/flow_manager/../output/../flow_graph/coverage/capacity_mean.h \
+ Controller/../Graph/flow_manager/../output/../flow_graph/coverage/../../../Datatype_Templates/misc_types.h \
+ Controller/../Graph/flow_manager/../output/../flow_graph/coverage/../../../Datatype_Templates/maps.h \
  Controller/../Graph/flow_manager/../output/../../Datatype_Templates/lazy.h \
  Controller/../Graph/flow_manager/../output/../../Datatype_Templates/graph_list.h \
  Controller/../Graph/flow_manager/../output/unsecurity_id.h \
+ Controller/../Graph/flow_manager/../output/transcript_unsecurity.h \
  Controller/../Graph/flow_manager/../flow_graph/arc_bridge.h \
  Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/maps.h \
  Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/lazy.h \
@@ -679,32 +695,28 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
  /homes/biertruck/thomas/Libraries//include/boost/unordered_set.hpp \
  /homes/biertruck/thomas/Libraries//include/boost/unordered/unordered_set.hpp \
  /homes/biertruck/thomas/Libraries//include/boost/unordered/unordered_set_fwd.hpp \
- Controller/../Graph/flow_manager/../flow_graph/lpath.h \
  Controller/../Graph/flow_manager/../flow_graph/path.h \
  Controller/../Graph/flow_manager/../flow_graph/exon_edge.h \
- Controller/../Graph/flow_manager/../flow_graph/path_evidence.h \
- Controller/../Graph/flow_manager/../flow_graph/rpath.h \
+ Controller/../Graph/flow_manager/../flow_graph/coverage/capacity_mean.h \
+ Controller/../Graph/flow_manager/../flow_graph/coverage/flow_series.h \
+ Controller/../Graph/flow_manager/../flow_graph/arc_identifier.h \
+ Controller/../Graph/flow_manager/../flow_graph/edge_types.h \
  Controller/../Graph/flow_manager/../flow_graph/edge_length.h \
- Controller/../Graph/flow_manager/../flow_graph/capacity_mean.h \
+ Controller/../Graph/flow_manager/../flow_graph/path_evidence.h \
  Controller/../Graph/flow_manager/../../Options/options.h \
- Controller/../Graph/flow_manager/basic_coverage_flow.h \
- Controller/../Graph/flow_manager/base_manager.h \
- /homes/biertruck/thomas/Libraries//include/lemon/preflow.h \
- /homes/biertruck/thomas/Libraries//include/lemon/tolerance.h \
- /homes/biertruck/thomas/Libraries//include/lemon/elevator.h \
  Controller/../Graph/flow_manager/mincost_flow_base.h \
+ Controller/../Graph/flow_manager/base_manager.h \
  /homes/biertruck/thomas/Libraries//include/lemon/cost_scaling.h \
  /homes/biertruck/thomas/Libraries//include/lemon/math.h \
  /homes/biertruck/thomas/Libraries//include/lemon/static_graph.h \
  /homes/biertruck/thomas/Libraries//include/lemon/circulation.h \
+ /homes/biertruck/thomas/Libraries//include/lemon/tolerance.h \
+ /homes/biertruck/thomas/Libraries//include/lemon/elevator.h \
  /homes/biertruck/thomas/Libraries//include/lemon/bellman_ford.h \
  /homes/biertruck/thomas/Libraries//include/lemon/network_simplex.h \
- Controller/../Graph/flow_manager/mincost_flow_linear_limit.h \
- Controller/../Graph/flow_manager/mincost_flow_base.h \
  Controller/../Graph/flow_manager/mincost_flow_square.h \
- Controller/../Graph/flow_manager/mincost_flow_square_hcost.h \
- Controller/../Graph/flow_manager/mincost_flow_square_limit.h \
- Controller/../Graph/flow_manager/mincost_flow_square.h
+ Controller/../Graph/flow_manager/mincost_flow_base.h \
+ Controller/../Graph/flow_manager/mincost_flow_square_hcost.h
 
 /usr/include/stdc-predef.h:
 
@@ -1039,6 +1051,10 @@ main.o: main.cc /usr/include/stdc-predef.h /usr/include/c++/7/iostream \
 /homes/biertruck/thomas/Libraries//include/htslib/sam.h:
 
 /homes/biertruck/thomas/Libraries//include/htslib/hts.h:
+
+/homes/biertruck/thomas/Libraries//include/htslib/hts_defs.h:
+
+/homes/biertruck/thomas/Libraries//include/htslib/hts_log.h:
 
 /homes/biertruck/thomas/Libraries//include/htslib/hts.h:
 
@@ -2044,11 +2060,21 @@ Reader/Chromosome/../../Datatype_Templates/maps.h:
 
 /usr/include/c++/7/bits/sstream.tcc:
 
+/usr/include/c++/7/unordered_map:
+
+/usr/include/c++/7/bits/hashtable.h:
+
+/usr/include/c++/7/bits/hashtable_policy.h:
+
+/usr/include/c++/7/bits/unordered_map.h:
+
 Reader/Chromosome/read_collection.h:
 
 Reader/Chromosome/../../Options/options.h:
 
 Reader/Chromosome/../../Logger/logger.h:
+
+Reader/Chromosome/raw_series_counts.h:
 
 Reader/Chromosome/interval.h:
 
@@ -2116,6 +2142,8 @@ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/paired_exon_group.h:
 
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/misc_types.h:
 
+Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/maps.h:
+
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/exon_edge.h:
 
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Datatype_Templates/misc_types.h:
@@ -2174,6 +2202,8 @@ Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../flow_graph/../../Logg
 
 Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/../../Datatype_Templates/lazy.h:
 
+Reader/../Graph/pre_graph/../overlap_graph/../pre_graph/exon_group_count.h:
+
 Reader/../Graph/pre_graph/../overlap_graph/contained_node.h:
 
 Reader/../Graph/pre_graph/exon_group.h:
@@ -2216,10 +2246,6 @@ Controller/../Graph/flow_manager/base_manager.h:
 
 /usr/include/c++/7/unordered_set:
 
-/usr/include/c++/7/bits/hashtable.h:
-
-/usr/include/c++/7/bits/hashtable_policy.h:
-
 /usr/include/c++/7/bits/unordered_set.h:
 
 Controller/../Graph/flow_manager/../../Datatype_Templates/maps.h:
@@ -2232,21 +2258,25 @@ Controller/../Graph/flow_manager/../../Datatype_Templates/move.h:
 
 Controller/../Graph/flow_manager/../overlap_graph/overlap_node.h:
 
-Controller/../Graph/flow_manager/../flow_graph/count_raw_node.h:
+Controller/../Graph/flow_manager/../../Datatype_Templates/voting.h:
 
-Controller/../Graph/flow_manager/../flow_graph/count_raw_edge.h:
+Controller/../Graph/flow_manager/../flow_graph/build/count_raw_edge.h:
 
-Controller/../Graph/flow_manager/../flow_graph/../pre_graph/exon_group.h:
+Controller/../Graph/flow_manager/../flow_graph/build/../../pre_graph/exon_group.h:
 
-Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/misc_types.h:
+Controller/../Graph/flow_manager/../flow_graph/build/../../../Datatype_Templates/misc_types.h:
 
-Controller/../Graph/flow_manager/../flow_graph/count_raw_edge.h:
+Controller/../Graph/flow_manager/../flow_graph/build/count_raw_node.h:
 
-Controller/../Graph/flow_manager/../flow_graph/region.h:
+Controller/../Graph/flow_manager/../flow_graph/build/count_raw_edge.h:
+
+Controller/../Graph/flow_manager/../flow_graph/build/region.h:
 
 Controller/../Graph/flow_manager/../flow_graph/edge_types.h:
 
 Controller/../Graph/flow_manager/../flow_graph/edge_length.h:
+
+Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/misc_types.h:
 
 Controller/../Graph/flow_manager/../pre_graph/pre_graph.h:
 
@@ -2256,13 +2286,27 @@ Controller/../Graph/flow_manager/../output/transcript.h:
 
 Controller/../Graph/flow_manager/../output/transcript_unsecurity.h:
 
+Controller/../Graph/flow_manager/../output/../../Datatype_Templates/misc_types.h:
+
 Controller/../Graph/flow_manager/../output/../flow_graph/exon_edge.h:
+
+Controller/../Graph/flow_manager/../output/../../Datatype_Templates/maps.h:
+
+Controller/../Graph/flow_manager/../output/../flow_graph/coverage/flow_series.h:
+
+Controller/../Graph/flow_manager/../output/../flow_graph/coverage/capacity_mean.h:
+
+Controller/../Graph/flow_manager/../output/../flow_graph/coverage/../../../Datatype_Templates/misc_types.h:
+
+Controller/../Graph/flow_manager/../output/../flow_graph/coverage/../../../Datatype_Templates/maps.h:
 
 Controller/../Graph/flow_manager/../output/../../Datatype_Templates/lazy.h:
 
 Controller/../Graph/flow_manager/../output/../../Datatype_Templates/graph_list.h:
 
 Controller/../Graph/flow_manager/../output/unsecurity_id.h:
+
+Controller/../Graph/flow_manager/../output/transcript_unsecurity.h:
 
 Controller/../Graph/flow_manager/../flow_graph/arc_bridge.h:
 
@@ -2280,33 +2324,27 @@ Controller/../Graph/flow_manager/../flow_graph/../../Datatype_Templates/sets.h:
 
 /homes/biertruck/thomas/Libraries//include/boost/unordered/unordered_set_fwd.hpp:
 
-Controller/../Graph/flow_manager/../flow_graph/lpath.h:
-
 Controller/../Graph/flow_manager/../flow_graph/path.h:
 
 Controller/../Graph/flow_manager/../flow_graph/exon_edge.h:
 
-Controller/../Graph/flow_manager/../flow_graph/path_evidence.h:
+Controller/../Graph/flow_manager/../flow_graph/coverage/capacity_mean.h:
 
-Controller/../Graph/flow_manager/../flow_graph/rpath.h:
+Controller/../Graph/flow_manager/../flow_graph/coverage/flow_series.h:
+
+Controller/../Graph/flow_manager/../flow_graph/arc_identifier.h:
+
+Controller/../Graph/flow_manager/../flow_graph/edge_types.h:
 
 Controller/../Graph/flow_manager/../flow_graph/edge_length.h:
 
-Controller/../Graph/flow_manager/../flow_graph/capacity_mean.h:
+Controller/../Graph/flow_manager/../flow_graph/path_evidence.h:
 
 Controller/../Graph/flow_manager/../../Options/options.h:
 
-Controller/../Graph/flow_manager/basic_coverage_flow.h:
+Controller/../Graph/flow_manager/mincost_flow_base.h:
 
 Controller/../Graph/flow_manager/base_manager.h:
-
-/homes/biertruck/thomas/Libraries//include/lemon/preflow.h:
-
-/homes/biertruck/thomas/Libraries//include/lemon/tolerance.h:
-
-/homes/biertruck/thomas/Libraries//include/lemon/elevator.h:
-
-Controller/../Graph/flow_manager/mincost_flow_base.h:
 
 /homes/biertruck/thomas/Libraries//include/lemon/cost_scaling.h:
 
@@ -2316,18 +2354,16 @@ Controller/../Graph/flow_manager/mincost_flow_base.h:
 
 /homes/biertruck/thomas/Libraries//include/lemon/circulation.h:
 
+/homes/biertruck/thomas/Libraries//include/lemon/tolerance.h:
+
+/homes/biertruck/thomas/Libraries//include/lemon/elevator.h:
+
 /homes/biertruck/thomas/Libraries//include/lemon/bellman_ford.h:
 
 /homes/biertruck/thomas/Libraries//include/lemon/network_simplex.h:
 
-Controller/../Graph/flow_manager/mincost_flow_linear_limit.h:
+Controller/../Graph/flow_manager/mincost_flow_square.h:
 
 Controller/../Graph/flow_manager/mincost_flow_base.h:
 
-Controller/../Graph/flow_manager/mincost_flow_square.h:
-
 Controller/../Graph/flow_manager/mincost_flow_square_hcost.h:
-
-Controller/../Graph/flow_manager/mincost_flow_square_limit.h:
-
-Controller/../Graph/flow_manager/mincost_flow_square.h:

@@ -568,9 +568,14 @@ Reader/Chromosome/connection_iterator.o: \
  /usr/include/c++/7/map /usr/include/c++/7/bits/stl_map.h \
  /usr/include/c++/7/bits/stl_multimap.h /usr/include/c++/7/bitset \
  /usr/include/c++/7/complex /usr/include/c++/7/sstream \
- /usr/include/c++/7/bits/sstream.tcc Reader/Chromosome/read_collection.h \
+ /usr/include/c++/7/bits/sstream.tcc /usr/include/c++/7/unordered_map \
+ /usr/include/c++/7/bits/hashtable.h \
+ /usr/include/c++/7/bits/hashtable_policy.h \
+ /usr/include/c++/7/bits/unordered_map.h \
+ Reader/Chromosome/read_collection.h \
  Reader/Chromosome/../../Options/options.h \
- Reader/Chromosome/../../Logger/logger.h Reader/Chromosome/interval.h
+ Reader/Chromosome/../../Logger/logger.h \
+ Reader/Chromosome/raw_series_counts.h Reader/Chromosome/interval.h
 
 /usr/include/stdc-predef.h:
 
@@ -1896,10 +1901,20 @@ Reader/Chromosome/../../Datatype_Templates/maps.h:
 
 /usr/include/c++/7/bits/sstream.tcc:
 
+/usr/include/c++/7/unordered_map:
+
+/usr/include/c++/7/bits/hashtable.h:
+
+/usr/include/c++/7/bits/hashtable_policy.h:
+
+/usr/include/c++/7/bits/unordered_map.h:
+
 Reader/Chromosome/read_collection.h:
 
 Reader/Chromosome/../../Options/options.h:
 
 Reader/Chromosome/../../Logger/logger.h:
+
+Reader/Chromosome/raw_series_counts.h:
 
 Reader/Chromosome/interval.h:

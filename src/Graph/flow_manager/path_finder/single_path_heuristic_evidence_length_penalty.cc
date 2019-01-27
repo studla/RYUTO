@@ -6,26 +6,25 @@
  */
 
 #include "single_path_heuristic_evidence_length_penalty.h"
+#include "Graph/flow_manager/base_manager.h"
 
 #include <lemon/lgf_writer.h>
 
-single_path_heuristic_evidence_length_penalty::single_path_heuristic_evidence_length_penalty(ListDigraph& wc,
+single_path_heuristic_evidence_length_penalty::single_path_heuristic_evidence_length_penalty(
+        ListDigraph& wc,
         ListDigraph::Node& s,
         ListDigraph::Node& t,
-        ListDigraph::ArcMap<capacity_type>& cfc,
-        ListDigraph::ArcMap<capacity_mean> &mc,
-        ListDigraph::ArcMap<exon_edge>& ces,
-        ListDigraph::ArcMap<edge_types::edge_type>& cet,
-        ListDigraph::ArcMap<edge_length> &cel,
+        ListDigraph::ArcMap<flow_series>& fc,   
+        ListDigraph::ArcMap<arc_identifier> &ai,
         ListDigraph::NodeMap<unsigned int>& cni,
         ListDigraph::ArcMap<arc_bridge>& kp,
         ListDigraph::ArcMap<arc_back_bridge>& kbp,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_in,
-        ListDigraph::ArcMap<unsigned int>& cycle_id_out,
         ListDigraph::ArcMap< lazy<std::set<transcript_unsecurity> > > &unsecurityArc,
-        ListDigraph::NodeMap< unsecurity_id > &unsecurityId,
+        ListDigraph::NodeMap< unsecurity_id> &unsecurityId,
+        std::set<int>& input_ids,
+        std::map<int, alternative_transcript_collection>& transcripts,
         unsigned int size) 
-: path_finder(wc, s, t, cfc, mc, ces, cet, cel, cni,kp, kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId, size) {
+: path_finder(wc, s, t, fc, ai, cni,kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts, size) {
 }
 
 single_path_heuristic_evidence_length_penalty::~single_path_heuristic_evidence_length_penalty() {
@@ -33,20 +32,21 @@ single_path_heuristic_evidence_length_penalty::~single_path_heuristic_evidence_l
 
 
 
-void single_path_heuristic_evidence_length_penalty::extract_transcripts(alternative_transcript_collection& results) {
+void single_path_heuristic_evidence_length_penalty::extract_transcripts(alternative_transcript_collection& results, int guiding) {
     
     while (true) {
-
-        logger::Instance()->debug("Extract Path\n");
-        digraphWriter(wc, std::cout)
-                .arcMap("edge_specifier", ces)
-                .arcMap("edge_type", cet)
-                .arcMap("flow", cfc)
-                .arcMap("length", cel)
-                .arcMap("means", mc)
-                .node("source", s)
-                .node("drain", t)
+   
+        #ifdef ALLOW_DEBUG
+        if (options::Instance()->is_debug()) {
+            logger::Instance()->debug("Extract Path " + std::to_string(guiding) + "\n");
+            digraphWriter(wc, std::cout)
+                .arcMap("Identifier", ai)
+                .arcMap("Flow/Capacity", fc)
+                .node("Source", s)
+                .node("Drain", t)
                 .run();  
+        }
+        #endif
         
         ListDigraph::ArcIt has_arc(wc);
         if ( has_arc == INVALID ) {
@@ -56,7 +56,7 @@ void single_path_heuristic_evidence_length_penalty::extract_transcripts(alternat
 
         // we find the max min path of the possible paths
         std::deque<ListDigraph::Arc> path;
-        find_min_max(path);
+        find_min_max(path, guiding);
         
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Path found " + std::to_string( path.size() )+ " ");
@@ -66,22 +66,25 @@ void single_path_heuristic_evidence_length_penalty::extract_transcripts(alternat
         logger::Instance()->debug("\n");
         #endif
         
-        capacity_type cap = add_path_to_collection(path, results, wc, cfc, ces, cet, kp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+        add_path_to_collection(path, results, wc, ai, fc, kp, unsecurityArc, unsecurityId, input_ids);
       
-        // now we need to remove this path from the copy
-        capacity_mean mean = remove_full_path(path, cap, wc, cfc, mc, ces, cet, cel, kp, kbp, cycle_id_in, cycle_id_out, unsecurityArc, unsecurityId);
+        gmap<int, capacity_type> capacities;
+        for (gmap<int, transcript::series_struct>::iterator iss = results.transcripts.back()->series.begin(); iss != results.transcripts.back()->series.end(); ++iss) { // contains all inputs!
+            capacities[iss->first] = iss->second.flow;
+        }
         
-        #ifdef ALLOW_DEBUG
-        logger::Instance()->debug("RMF VALUES " + std::to_string(mean.mean) + " " + std::to_string(mean.weight) + " \n");
-        #endif
+        // now we need to remove this path from the copy
+        flow_series flows = remove_full_path(path, capacities, guiding, wc, ai, fc, kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts[guiding]);
 
-        results.transcripts.back()->mean = mean.mean;
-        results.transcripts.back()->score = mean.compute_score();
+        for (std::set<int>::iterator iii =  input_ids.begin(); iii != input_ids.end(); ++iii) {    
+            results.transcripts.back()->series[*iii].mean = flows.get_mean(*iii).mean;
+            results.transcripts.back()->series[*iii].score = flows.get_mean(*iii).compute_score();
+        }
     }
     
 }
 
-void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<ListDigraph::Arc> &path) {
+void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<ListDigraph::Arc> &path, int guiding) {
     
     // logging stuff to remove
         logger::Instance()->debug("Min Max Pre \n"); 
@@ -98,8 +101,7 @@ void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<List
         }
 //        
         // end logging stuff
-    
-    
+
     // since we have a DAG we can operate in linear time using a topological order
     // we get such a order using DFS
     std::deque<ListDigraph::Node> top_order;
@@ -165,16 +167,15 @@ void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<List
                         barred = true;
                     }
                 }
-                
-                
+                  
                 unsigned int added_penalty = 0;
                 if (!kp[arc].is_evidenced_path()) {
                     added_penalty = 1;
                 }
                 
-                rpos added_length = cel[a].middle + cel[a].last_exon;
+                rpos added_length = ai[a].edge_lengths.middle + ai[a].edge_lengths.last_exon;
                 if (p_it->second.length == 0) {
-                    added_length += cel[a].first_exon;
+                    added_length += ai[a].edge_lengths.first_exon;
                 }
                 
                 logger::Instance()->debug("Added " + std::to_string(added_length) + " " + std::to_string(added_penalty) + "\n");
@@ -200,11 +201,11 @@ void single_path_heuristic_evidence_length_penalty::find_min_max(std::deque<List
                     continue;
                 }
                 
-                max = cfc[a];
+                max = fc[a].get_flow(guiding);
                 penalty = 0;
-                length = cel[a].first_exon + cel[a].middle + cel[a].last_exon;
+                length = ai[a].edge_lengths.first_exon + ai[a].edge_lengths.middle + ai[a].edge_lengths.last_exon;
             }
-            capacity_type min_cap = std::min(cfc[a], max);
+            capacity_type min_cap = std::min(fc[a].get_flow(guiding), max);
             
             dyn_info new_path;
             new_path.arc = max_arc; // this is fine as empty for source node

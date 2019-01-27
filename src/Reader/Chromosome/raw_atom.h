@@ -18,6 +18,7 @@
 #include "read.h"
 #include "../../Datatype_Templates/maps.h"
 #include "read_collection.h"
+#include "raw_series_counts.h"
 
 class raw_atom {
 public:
@@ -28,33 +29,26 @@ public:
     
     lazy<greader_refsorted_list<exon*> > exons; // needs < operator on real exon objects
     
-    lazy<greader_refsorted_list<read_collection*> > reads; // save reads for later splits/ further processing
+    lazy<greader_refsorted_list<read_collection*> > reads; // temporary reads for later splits/ further processing
     
     // pairing info
-    paired_map<raw_atom*, rcount > paired; 
+    paired_map<raw_atom*, gmap<int, rcount> > paired; 
     
     // solidified data
-    
-    rcount count; // additional to counts in reads!
-    rcount paired_count; // additional to info in reads / paired included
+        
     bool length_filtered; // additional to info in reads
     bool source_evidence; // additional to info in reads
     bool drain_evidence; // additional to info in reads
     
     bool reference_atom; // was this created as a reference atom
-    bool killed; // was this created as a reference atom
     std::string reference_name;
     
+    bool has_coverage; // was this created as a reference atom
+        
     // all middle exons are fully covered by design, except for merging holes
 
-    // extension to have full controll over coverage!
-    lazy<std::map< rpos,rcount > > lefts;
-    rcount total_lefts;
-    lazy<std::map< rpos,rcount > > rights;
-    rcount total_rights;
-    
-    lazy<std::map< rpos,rcount > > hole_starts;
-    lazy<std::map< rpos,rcount > > hole_ends;
+    // series
+    gmap<int, raw_series_counts> raw_series;
     
     unsigned int id; // id by sorting
     

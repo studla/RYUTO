@@ -33,12 +33,12 @@ void alternative_transcript_collection::join(alternative_transcript_collection &
 void alternative_transcript_collection::print(std::ostream& os) {
     
     // header
-    os << "Cycle In\tCycle Out\tEdge\tFlow\tUnsecurities\n";
-    for (graph_list<lazy<transcript> >::iterator it = transcripts.begin(); it!= transcripts.end(); ++it) {
-        if (it->ref().flow > options::Instance()->get_capacity_filter()) { 
-            it->ref().print(os);
-        }
-    } 
+//    os << "Cycle In\tCycle Out\tEdge\tFlow\tUnsecurities\n";
+//    for (graph_list<lazy<transcript> >::iterator it = transcripts.begin(); it!= transcripts.end(); ++it) {
+//        if (it->ref().flow > options::Instance()->get_capacity_filter()) { 
+//            it->ref().print(os);
+//        }
+//    } 
     
 }
 
@@ -46,7 +46,7 @@ void alternative_transcript_collection::print_gtf(std::ostream &os, std::string 
     
     unsigned int transcript_id = 1;
     for (graph_list<lazy<transcript> >::iterator it = transcripts.begin(); it!= transcripts.end(); ++it) {
-        (*it)->print_gtf_entry(os, gene_id, transcript_id);
+        (*it)->print_gtf_entry(os, gene_id, transcript_id, input_main_id);
         ++transcript_id;
     }
 }
@@ -57,7 +57,12 @@ void alternative_transcript_collection::finalize_borders(exon_meta* meta) {
      } 
 }
 
-void alternative_transcript_collection::filter_transcripts() {
+void alternative_transcript_collection::filter_transcripts(int id) {
+    
+    
+     #ifdef ALLOW_DEBUG
+      logger::Instance()->debug("Filter Set " + std::to_string(id) + "\n");
+     #endif
     
     // this requires FINALIZED transcripts 
     
@@ -136,23 +141,17 @@ void alternative_transcript_collection::filter_transcripts() {
 //        std::deque<float> all_scores;
 
         for (graph_list<lazy<transcript> >::iterator it = regional.begin(); it!= regional.end(); ++it) {
-            if (it->ref().flow > uniform_max) {
-                uniform_max = it->ref().flow;
+            if (it->ref().series[id].flow > uniform_max) {
+                uniform_max = it->ref().series[id].flow;
             }
-            if (it->ref().mean > mean_max) {
-                mean_max = it->ref().mean;
+            if (it->ref().series[id].mean > mean_max) {
+                mean_max = it->ref().series[id].mean;
             }
-            float sco = it->ref().score;
+            float sco = it->ref().series[id].score;
             if (sco > score_max) {
                 score_max = sco;
-            }
-            
-//            all_scores.push_back(sco);
+            }       
         }
-        
-//        std::sort(all_scores.begin(), all_scores.end());
-//        float score_median = 0;
-//        if (!all_scores.empty()) score_median = all_scores[all_scores.size()/2];
         
         
         #ifdef ALLOW_DEBUG
@@ -165,11 +164,6 @@ void alternative_transcript_collection::filter_transcripts() {
             unsigned int exon_count = (*it)->exons.size();
    
             bool unevidenced = false;
-//            for(std::deque<transcript_unsecurity>::iterator u_it = it->ref().unsecurity_id.begin(); u_it != it->ref().unsecurity_id.end() ; ++u_it) {
-//                if (u_it->evidenced == transcript_unsecurity::UNEVIDENCED) {
-//                    unevidenced = true;
-//                }
-//            }
             bool barred = false;
             for(std::deque<transcript_unsecurity>::iterator u_it = it->ref().unsecurity_id.begin(); u_it != it->ref().unsecurity_id.end() ; ++u_it) {
                 if (u_it->evidenced == transcript_unsecurity::BARRED) {
@@ -177,20 +171,8 @@ void alternative_transcript_collection::filter_transcripts() {
                 }
             }
             
-//             #ifdef ALLOW_DEBUG
-//             logger::Instance()->debug("Test " + it->ref().found_edge.to_string() + " " + std::to_string(it->ref().mean) + " " + std::to_string(it->ref().score) + " " +  std::to_string(length) + " exoncount " + std::to_string(exon_count) +  ".\n");
-//             #endif
-        
-//            float mean_border = mean_max * options::Instance()->get_percentage_filter() / 100.0;
-//            if (mean_border > 15) mean_border = 15;           
-            
-//            #ifdef ALLOW_DEBUG
-//            logger::Instance()->debug("Testvalues h " + std::to_string(highlander_mode) + " u " +  std::to_string(unevidenced) + " b " + std::to_string(barred) +  ".\n");
-//            #endif
-            
-             
             #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Transcript: "+it->ref().found_edge.to_string()+ " l " + std::to_string(it->ref().length) + " f " + std::to_string(it->ref().flow) + " m " + std::to_string(it->ref().mean) + " s " + std::to_string(it->ref().score) + " bar " + std::to_string(barred) +"\n");
+            logger::Instance()->debug("Transcript: "+it->ref().found_edge.to_string() + " ec " + std::to_string(exon_count) + " l " + std::to_string(it->ref().length) + " f " + std::to_string(it->ref().series[id].flow) + " m " + std::to_string(it->ref().series[id].mean) + " s " + std::to_string(it->ref().series[id].score) + " bar " + std::to_string(barred) +"\n");
             #endif 
              
             if ( it->ref().guided 
@@ -200,17 +182,17 @@ void alternative_transcript_collection::filter_transcripts() {
 //                   ( (highlander_mode && it->ref().mean >= options::Instance()->get_group_filter_base())
 //                      || 
 //                      (!highlander_mode) )
-                    it->ref().mean >= mean_max * options::Instance()->get_percentage_filter() / 100.0
+                    it->ref().series[id].mean >= mean_max * options::Instance()->get_percentage_filter() / 100.0
      //               && ( it->ref().score > 8 || it->ref().score > score_median * 0.1 )
 //                    && it->ref().flow > options::Instance()->get_capacity_filter()
-                    && (it->ref().mean > options::Instance()->get_mean_filter() || it->ref().score > options::Instance()->get_mean_filter())
-                    && it->ref().score > options::Instance()->get_minimal_score()
+                    && (it->ref().series[id].mean > options::Instance()->get_mean_filter() || it->ref().series[id].score > options::Instance()->get_mean_filter())
+                    && it->ref().series[id].score > options::Instance()->get_minimal_score()
                     && mean_max > options::Instance()->get_group_mean_min()  
                     //&& length >= options::Instance()->get_min_transcript_length()
                     && length >= (options::Instance()->get_min_transcript_length_base() + options::Instance()->get_min_transcript_length_extension() * exon_count)    //
                     && !unevidenced
                     && !barred
-                    && (exon_count > 1 || it->ref().mean > options::Instance()->get_min_single_coverage())
+                    && (exon_count > 1 || ( it->ref().series[id].mean > options::Instance()->get_min_single_coverage() && length >= options::Instance()->get_min_single_length()) )
                     )) {
                          #ifdef ALLOW_DEBUG
                         logger::Instance()->debug("keep\n");
@@ -241,7 +223,7 @@ void alternative_transcript_collection::filter_transcripts() {
                 
                 rpos left = (*j)->exons[0].first;
                 rpos right = (*j)->exons[(*j)->exons.size()-1].second;
-                if ((*j)->flow >= (*i)->flow && (*j)->score >= (*i)->score && left > is && right < ie) {
+                if ((*j)->series[id].flow >= (*i)->series[id].flow && (*j)->series[id].score >= (*i)->series[id].score && left > is && right < ie) {
                     kill = true;
                     break;
                 }

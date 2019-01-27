@@ -15,20 +15,20 @@
 class mincost_flow_base : public base_manager {
 public:
     
-    mincost_flow_base(pre_graph* raw, exon_meta* meta, const std::string &chromosome);
+    mincost_flow_base(pre_graph* raw, exon_meta* meta, const std::string &chromosome, std::set<int> &ids);
     virtual ~mincost_flow_base();
     
         // interface functions for graph creation
     virtual void initialize_source_drain_arc(const ListDigraph::Arc &arc);
     virtual const bool expand_exon_nodes();
     
-    virtual void create_node_capacities(ListDigraph::Arc &arc, region &r);
-    virtual void create_edge_capacities(ListDigraph::Arc &arc, region &r);
+    virtual void create_node_capacities(ListDigraph::Arc &arc, flow_series &r);
+    virtual void create_edge_capacities(ListDigraph::Arc &arc, flow_series &r);
     
-    virtual void finalize_flow_graph();
+    virtual void finalize_flow_graph(int id);
     
      // interface functions for flow
-    virtual void compute_flow();
+    virtual void compute_flow(int id);
     
     
     // output with capacity
@@ -47,9 +47,10 @@ protected:
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
             ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply);
+            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
+            int id);
     
-    virtual capacity_type find_exogenous_flow(ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow);
+    virtual capacity_type find_exogenous_flow(ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow, int id);
     
     virtual void add_offset_edge(capacity_type capacity, capacity_type orig_cap, int exon_count,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
@@ -83,7 +84,7 @@ protected:
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_forward,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_backward,
             ListDigraph &og,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap);
+            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap, int id);
     
     virtual void init_variables(capacity_type max_supply);
     

@@ -1,7 +1,7 @@
 Graph/pre_graph/exon_meta.o: Graph/pre_graph/exon_meta.cc \
  /usr/include/stdc-predef.h Graph/pre_graph/exon_meta.h \
  Graph/pre_graph/../../Datatype_Templates/misc_types.h \
- /usr/include/c++/7/string \
+ Graph/pre_graph/../../Logger/logger.h /usr/include/c++/7/string \
  /usr/include/c++/7/x86_64-redhat-linux/bits/c++config.h \
  /usr/include/bits/wordsize.h \
  /usr/include/c++/7/x86_64-redhat-linux/bits/os_defines.h \
@@ -91,14 +91,19 @@ Graph/pre_graph/exon_meta.o: Graph/pre_graph/exon_meta.cc \
  /usr/include/linux/errno.h /usr/include/asm/errno.h \
  /usr/include/asm-generic/errno.h /usr/include/asm-generic/errno-base.h \
  /usr/include/c++/7/bits/functional_hash.h \
- /usr/include/c++/7/bits/basic_string.tcc \
- Graph/pre_graph/../../Logger/logger.h
+ /usr/include/c++/7/bits/basic_string.tcc /usr/include/c++/7/vector \
+ /usr/include/c++/7/bits/stl_construct.h \
+ /usr/include/c++/7/bits/stl_uninitialized.h \
+ /usr/include/c++/7/bits/stl_vector.h \
+ /usr/include/c++/7/bits/stl_bvector.h /usr/include/c++/7/bits/vector.tcc
 
 /usr/include/stdc-predef.h:
 
 Graph/pre_graph/exon_meta.h:
 
 Graph/pre_graph/../../Datatype_Templates/misc_types.h:
+
+Graph/pre_graph/../../Logger/logger.h:
 
 /usr/include/c++/7/string:
 
@@ -380,4 +385,14 @@ Graph/pre_graph/../../Datatype_Templates/misc_types.h:
 
 /usr/include/c++/7/bits/basic_string.tcc:
 
-Graph/pre_graph/../../Logger/logger.h:
+/usr/include/c++/7/vector:
+
+/usr/include/c++/7/bits/stl_construct.h:
+
+/usr/include/c++/7/bits/stl_uninitialized.h:
+
+/usr/include/c++/7/bits/stl_vector.h:
+
+/usr/include/c++/7/bits/stl_bvector.h:
+
+/usr/include/c++/7/bits/vector.tcc:

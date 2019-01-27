@@ -19,13 +19,14 @@
 #include "../overlap_graph/range_helper.h"
 #include "../../Logger/logger.h"
 #include "../../Options/options.h"
+#include "../flow_graph/coverage/flow_series.h"
 
 #include <deque>
 
 typedef lemon::ListGraph Graph;
 
 
-base_manager::base_manager( pre_graph* raw,  exon_meta* meta,  const std::string &chromosome) : meta(meta), raw(raw), chromosome(chromosome) ,edge_specifier(g), edge_type(g), edge_lengths(g), node_index(g), capacity(g), flow(g), means(g), regions(g), cycle_id_in(g), cycle_id_out(g)  {
+base_manager::base_manager( pre_graph* raw,  exon_meta* meta,  const std::string &chromosome, std::set<int> &ids) : meta(meta), raw(raw), chromosome(chromosome), ai(g), node_index(g), fs(g), input_ids(ids), input_count(ids.size())  {
     
 }
 
@@ -34,31 +35,39 @@ base_manager::~base_manager() {
 
 bool base_manager::build_basic_splitgraph() {  //TODO: REWORK COVERAGE
     
-    logger::Instance()->info("Build Splitgraph, Bin List: "+std::to_string(raw->singled_bin_list.size()) +" Region: " + std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[meta->size-1].right) + " Evidences " + std::to_string(raw->bam_count) + "/"+ std::to_string(raw->bam_count_total) + ".\n");
+    logger::Instance()->info("Build Splitgraph, Bin List: "+std::to_string(raw->singled_bin_list.size()) +" Region: " + std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[meta->size-1].right) + ".\n");
     
     if (raw->singled_bin_list.empty()) {
         logger::Instance()->warning("All Reads filtered on "+ chromosome + " " +std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[meta->size-1].right) +"\n");
         return false;
     }
     
-    if (meta->size == 1) { // TODO: REAL handling
+    if (meta->size == 1) {
         logger::Instance()->warning("Single exon on "+ chromosome + " " +std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[0].right) +"\n");
         
-        for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().hole_ends[0].begin(); i != raw->singled_bin_list.front().hole_ends[0].end(); ++i) {
-            raw->singled_bin_list.front().lefts.ref()[i->first] += i->second;
+        std::map<int, float> capacity;
+        for ( std::set<int>::iterator iii = input_ids.begin(); iii !=  input_ids.end(); ++iii) {
+            
+            if (raw->singled_bin_list.front().count_series.find(*iii) == raw->singled_bin_list.front().count_series.end()) {
+                continue;
+            }
+            
+            for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().count_series[*iii].hole_ends[0].begin(); i != raw->singled_bin_list.front().count_series[*iii].hole_ends[0].end(); ++i) {
+                raw->singled_bin_list.front().count_series[*iii].lefts.ref()[i->first] += i->second;
+            }
+
+            for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().count_series[*iii].hole_starts[0].begin(); i !=  raw->singled_bin_list.front().count_series[*iii].hole_starts[0].end(); ++i) {
+                raw->singled_bin_list.front().count_series[*iii].rights.ref()[i->first]+= i->second;
+            }
+
+            region r;
+            create_region(0, 0, raw->singled_bin_list.front().count_series[*iii].lefts.ref(), raw->singled_bin_list.front().count_series[*iii].rights.ref(), r);
+            if (r.get_average() > 3.0) capacity[*iii] = r.get_average();
         }
         
-        for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().hole_starts[0].begin(); i !=  raw->singled_bin_list.front().hole_starts[0].end(); ++i) {
-            raw->singled_bin_list.front().rights.ref()[i->first]+= i->second;
-        }
-        
-        region r;
-        create_region(0, 0, raw->singled_bin_list.front().lefts.ref(), raw->singled_bin_list.front().rights.ref(), r);
-                
         if (!raw->singled_bin_list.empty() 
-                &&  (raw->singled_bin_list.front().reference_atom || r.get_average() >= options::Instance()->get_min_single_coverage())
-                && (options::Instance()->is_disjoint_input() || raw->bam_count >= raw->bam_count_total) ) {
-            single_exons.insert(single_exon(0, r.get_average(), raw->singled_bin_list.front().reference_atom));
+                && (options::Instance()->vote(capacity.size(), input_ids.size(), options::delete_on::group_vote_high) ) ) {
+            single_exons.insert(single_exon(0, capacity, raw->singled_bin_list.front().reference_atom));
         }
         return false;
     }
@@ -107,12 +116,11 @@ bool base_manager::build_basic_splitgraph() {  //TODO: REWORK COVERAGE
         }
 
         unsigned int offset = 0;
-        rcount next_value = it->total_lefts + it->hole_end_counts[0] - it->hole_start_counts[0];
-        
-        #ifdef ALLOW_DEBUG
-        logger::Instance()->debug("next v " + std::to_string(next_value) + "#########\n");
-        #endif
-        
+        gmap<int, rcount> next_value;
+        for (gmap<int, exon_group_count>::iterator egi = it->count_series.begin(); egi != it->count_series.end(); ++egi) {
+            next_value[egi->first] = egi->second.total_lefts + egi->second.hole_end_counts[0] - egi->second.hole_start_counts[0];
+        }
+    
         unsigned int start = it->range_start;
         for (unsigned int i = it->range_start+1; i<= it->range_end; ++i) {
             
@@ -134,26 +142,22 @@ bool base_manager::build_basic_splitgraph() {  //TODO: REWORK COVERAGE
                 // this arc does not exist so far, we should add it
                 arc = g.addArc(gnodes[start], gnodes[i]);
                 
-                exon_edge* edge = &edge_specifier[arc];
+                exon_edge* edge = &ai[arc].edge_specifier;
                 
                 edge->reserve(raw->size);
-                edge_specifier[arc].add_exon(start);
-                edge_specifier[arc].add_exon(i);
+                ai[arc].edge_specifier.add_exon(start);
+                ai[arc].edge_specifier.add_exon(i);
             } else {
                 arc = e;
             }
             
-            #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("add " + std::to_string(start) + " " + std::to_string(i) + "; " + std::to_string(offset) + " " + std::to_string(next_value) + "*******************\n");
-            #endif
-            
             count_raw_edge* rec = &edge_counts[arc];
-            next_value = rec->add_sub_counts_eg(&*it, offset+1, offset, next_value);
+            rec->add_sub_counts_eg(&*it, offset+1, offset, next_value);
             offset += 1;
               
             if (i < it->range_end) {
                 count_raw_node* rcl = &node_counts[gnodes[i]];
-                next_value = rcl->add_node_initial_index(&*it, offset, next_value);
+                rcl->add_node_initial_index(&*it, offset, next_value);
             } else {
                 count_raw_node* rc = &node_counts[gnodes[i]];
                 rc->add_node_end(&*it);
@@ -328,141 +332,19 @@ bool base_manager::build_basic_splitgraph() {  //TODO: REWORK COVERAGE
 //    reduce_transitive_contains(contained_nodes);
 //    reduce_transitive_contains(filtered_contained_nodes);
 //    
-//    raw->initialize_exon_gaps_paired(nodes, contained_nodes);
-//    raw->initialize_exon_gaps_single(nodes, contained_nodes);
-    
+
     raw->initialize_exon_gaps_single_raw();
     raw->initialize_exon_gaps_paired_raw();
     
     return true;
 }
 
-//This function takes the raw reads and attemps to kill faulty neighbouring low evidenced active 
-void base_manager::filter_bins() {
-   
-    #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Filter Bins\n");
-    #endif
-    
-    if (raw->singled_bin_list.empty()) {
-        return;
-    }
-   
-    graph_list<exon_group*> active;
-    unsigned int exon_index = 0;
-    
-    graph_list<exon_group>::iterator it = raw->singled_bin_list.begin();
-    bool found = false;
-    while (!found) {
-        if ( it->reference_atom) {
-            raw->guide_transcripts.push_back(&*it); 
-            if(it->frag_count == 0) {
-                ++it;
-                if (it == raw->singled_bin_list.end()) {
-                    return;
-                }
-                continue; // don't use this for building graph if no other frags exist
-            }
-        }
-        if (it->range_start == it->range_end) { // we don't want singles!
-            ++it;
-            if (it == raw->singled_bin_list.end()) {
-                return;
-            }
-            continue;
-        }
-        found = true;
-    }
-    
-    active.push_back( &*it); // add first node as active
-    ++it;
-    
-    for(;it != raw->singled_bin_list.end(); ++it) { // 
-        
-        graph_list<exon_group*> contains;
-        
-        if ( it->reference_atom) {
-            raw->guide_transcripts.push_back( &*it); 
-            if(it->frag_count == 0) {
-                continue; // don't use this for building graph if no other frags exist
-            }
-        }
-        
-        // increase exon_index if needed and update active list
-        if (it->range_start > exon_index) {
-            exon_index = it->range_start;
-           
-            typename graph_list<exon_group*>::iterator at = active.begin();
-            while(at != active.end()) {
-                if((*at)->range_end < exon_index) {
-                    at = active.erase(at);
-                } else {
-                    ++at;
-                }
-            }
-        }
-        
-        // search all active for containment
-        for (typename graph_list<exon_group*>::iterator ac = active.begin(); ac != active.end(); ++ac ) { 
-            if ( *(*ac) > *it ) { // active node contains current next node
-                contains.push_back(*ac);
-            }
-        }
-
-        if (contains.size() == 1) {
-            exon_group* c = contains.front();
-            if (c->frag_count < 6) {
-                if ( it->range_start == c->range_start ) {
-                    unsigned int first = it->range_end;
-                    unsigned int next = c->bin_mask.id.find_next(first);
-                    if (next == c->range_end && meta->exons[first].right + 1 == meta->exons[next].left) {
-                       // illegal neighbour join
-                       c->filtered = true;
-                       
-                        #ifdef ALLOW_DEBUG
-                        logger::Instance()->debug("DeleteA "+ c->bin_mask.to_string() +" because of " + it->bin_mask.to_string() + "\n");
-                        #endif
-                       
-                    }
-                } else if ( it->range_end == c->range_end) {
-                    unsigned int first = c->range_start;
-                    unsigned int next = c->bin_mask.id.find_next(first);
-                    if (next == it->range_start && meta->exons[first].right + 1 == meta->exons[next].left) {
-                       // illegal neighbour join
-                       c->filtered = true;
-                       
-                         #ifdef ALLOW_DEBUG
-                        logger::Instance()->debug("DeleteB "+ c->bin_mask.to_string() +" because of " + it->bin_mask.to_string() + "\n");
-                        #endif
-                    }
-                }
-            }
-        } 
-    }
-    
-    #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Execute Delete Filter Bins\n");
-    #endif
-    
-    for (typename graph_list<exon_group>::iterator it = raw->singled_bin_list.begin();  it != raw->singled_bin_list.end(); ) {
-        if (it->filtered) {
-            it = raw->singled_bin_list.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    
-}
-
-
-
-
 // This function takes the raw reads and builds up a graph for
 // inheriting flow modules. Multi-Exon evidence is left intact whenever possible
 // without ambigous flow!
 bool base_manager::build_extended_splitgraph() {
     
-    logger::Instance()->info("Build Splitgraph, Bin List: "+std::to_string(raw->singled_bin_list.size()) +" Region: " + std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[meta->size-1].right) + " Evidences " + std::to_string(raw->bam_count) + "/"+ std::to_string(raw->bam_count_total) + ".\n");
+    logger::Instance()->info("Build Splitgraph, Bin List: "+std::to_string(raw->singled_bin_list.size()) +" Region: " + std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[meta->size-1].right) + ".\n");
     
     if (raw->singled_bin_list.empty()) {
         logger::Instance()->warning("All Reads filtered on "+ chromosome + " " +std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[meta->size-1].right) +"\n");
@@ -472,21 +354,29 @@ bool base_manager::build_extended_splitgraph() {
     if (meta->size == 1) { // TODO: REAL handling
         logger::Instance()->warning("Single exon on "+ chromosome + " " +std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[0].right) +"\n");
         
-        for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().hole_ends[0].begin(); i != raw->singled_bin_list.front().hole_ends[0].end(); ++i) {
-            raw->singled_bin_list.front().lefts.ref()[i->first] += i->second;
+        std::map<int, float> capacity;
+        for ( std::set<int>::iterator iii = input_ids.begin(); iii !=  input_ids.end(); ++iii) {
+            
+            if (raw->singled_bin_list.front().count_series.find(*iii) == raw->singled_bin_list.front().count_series.end()) {
+                continue;
+            }
+            
+            for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().count_series[*iii].hole_ends[0].begin(); i != raw->singled_bin_list.front().count_series[*iii].hole_ends[0].end(); ++i) {
+                raw->singled_bin_list.front().count_series[*iii].lefts.ref()[i->first] += i->second;
+            }
+
+            for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().count_series[*iii].hole_starts[0].begin(); i !=  raw->singled_bin_list.front().count_series[*iii].hole_starts[0].end(); ++i) {
+                raw->singled_bin_list.front().count_series[*iii].rights.ref()[i->first]+= i->second;
+            }
+
+            region r;
+            create_region(0, 0, raw->singled_bin_list.front().count_series[*iii].lefts.ref(), raw->singled_bin_list.front().count_series[*iii].rights.ref(), r);
+            if ( (raw->singled_bin_list.front().reference_atom && r.get_max() > 0) || r.get_average() > 3.0) capacity[*iii] = r.get_average();
         }
         
-        for (std::map< rpos,rcount >::iterator i = raw->singled_bin_list.front().hole_starts[0].begin(); i !=  raw->singled_bin_list.front().hole_starts[0].end(); ++i) {
-            raw->singled_bin_list.front().rights.ref()[i->first]+= i->second;
-        }
-        
-        region r;
-        create_region(0, 0, raw->singled_bin_list.front().lefts.ref(), raw->singled_bin_list.front().rights.ref(), r);
-                
         if (!raw->singled_bin_list.empty() 
-                &&  (raw->singled_bin_list.front().reference_atom || r.get_average() >= options::Instance()->get_min_single_coverage())
-                && (options::Instance()->is_disjoint_input() || raw->bam_count >= raw->bam_count_total) ) {
-            single_exons.insert(single_exon(0, r.get_average(), raw->singled_bin_list.front().reference_atom));
+                && options::Instance()->vote(capacity.size(), input_ids.size(), options::delete_on::group_vote_high) ) {
+            single_exons.insert(single_exon(0, capacity, raw->singled_bin_list.front().reference_atom));
         }
         return false;
     }
@@ -514,7 +404,10 @@ bool base_manager::build_extended_splitgraph() {
             #endif
             
             raw->guide_transcripts.push_back( &*it); 
-            if(it->frag_count == 0) {
+            if(!it->has_coverage) {
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("With no Coverage.\n");
+                #endif
                 ++it;
                 if (it == raw->singled_bin_list.end()) {
                     logger::Instance()->warning("No split reads mapping on/only guides for "+ chromosome + " " +std::to_string(meta->exons[0].left)+" - " + std::to_string(meta->exons[0].right) +" - Skip Graph\n");
@@ -552,7 +445,10 @@ bool base_manager::build_extended_splitgraph() {
             #endif
             
             raw->guide_transcripts.push_back( &*it); 
-            if(it->frag_count == 0) {
+            if(!it->has_coverage) {
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("With no Coverage.\n");
+                #endif
                 continue; // don't use this for building graph if no other frags exist
             }
         }
@@ -614,11 +510,7 @@ bool base_manager::build_extended_splitgraph() {
                 // single exons cannot form edges, as they have no split
                 // and thus constitute a direct link from source to drain,
                 // causing a variety of problems: don't add
-                
-                if (it->reference_atom) {
-                    single_exons.insert(single_exon(it->range_start, it->frag_count, it->reference_atom)); // TODO LATER
-                }
-                
+
                 continue;
                 
             }
@@ -667,9 +559,6 @@ bool base_manager::build_extended_splitgraph() {
     #endif
     
     // this is for later processing to disambiguate nodes
-//    raw->initialize_exon_gaps_paired(nodes, contained_nodes);
-//    raw->initialize_exon_gaps_single(nodes, contained_nodes);
-   // raw->initialize_exon_gaps_single_all(nodes, contained_nodes);
     raw->initialize_exon_gaps_single_raw();
     raw->initialize_exon_gaps_paired_raw();
     
@@ -903,10 +792,6 @@ void base_manager::reduce_single_nodes( std::deque<overlap_node> &nodes,  std::d
             raw_exons.push_back(*it->exons); // we need to keep the references to the original intact with all values!
             
             it->exons = &raw_exons.back();
-            it->exons->frag_count = 0;
-            it->exons->read_count = 0;
-            it->exons->base_count_start = 0;
-            it->exons->base_count_end = 0;
             it->exons->reset_maps();
             it->exons->extended = true;
                    
@@ -1009,7 +894,12 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
         
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Add Node " + node_it->exons->bin_mask.to_string() + " "  + std::to_string(node_it->back_links.empty()) + " " + std::to_string(node_it->exons->source_evidence) + " " + std::to_string(node_it->exons->drain_evidence)  +"\n");
+        for(gmap<int, exon_group_count>::iterator ssi = node_it->exons->count_series.begin(); ssi != node_it->exons->count_series.end(); ++ssi) {
+            logger::Instance()->debug("Id " +  std::to_string(ssi->first) + ":" + std::to_string(ssi->second.total_lefts) + "-" + std::to_string(ssi->second.total_rights)  +"\n");
+        }
         #endif
+        
+        
         
 //        for( typename graph_list<overlap_node*>::iterator b_it = node_it->back_links.begin(); b_it != node_it->back_links.end(); ++b_it) {
 //             logger::Instance()->debug("Backlink ");
@@ -1067,7 +957,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             
             // now translate the contained node to a binary exon_edge
             ListDigraph::Arc added_arc = g.addArc(gnodes[start], gnodes[end]); // this also creates the map entries already!
-            exon_edge* edge = &edge_specifier[added_arc];
+            exon_edge* edge = &ai[added_arc].edge_specifier;
             *edge = node_it->exons->bin_mask;
             
             junction_to_arc.insert(std::make_pair(*edge, added_arc));
@@ -1133,7 +1023,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             if (r_it!=NULL && r_it->start != i) {
                 
                 // split up graph and edge objects
-                split_edge(i, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                split_edge(i, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
                 
             }
             
@@ -1144,15 +1034,19 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             rcl->add_node_start(node_it->exons); 
            
             unsigned int offset = 0;
-            rcount next_value = node_it->exons->total_lefts + node_it->exons->hole_end_counts[0] - node_it->exons->hole_start_counts[0];
+            gmap<int, rcount> next_value;
+            for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
+                next_value[egi->first] = egi->second.total_lefts + egi->second.hole_end_counts[0] - egi->second.hole_start_counts[0];
+            }
+            
             for(; r_it!=NULL ; r_it = (*b_it)->ranges.next() ) {
                 
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                next_value = rec->add_sub_counts_eg(node_it->exons, offset+1, offset + rec->size, next_value);
+                rec->add_sub_counts_eg(node_it->exons, offset+1, offset + rec->size, next_value);
                 offset += rec->size + 1;
                 
                 count_raw_node* rcl = &node_counts[gnodes[r_it->end]];
-                next_value = rcl->add_node_initial_index(node_it->exons, offset, next_value);
+                rcl->add_node_initial_index(node_it->exons, offset, next_value);
                 
                 node_it->ranges.addRange(r_it);
             }
@@ -1207,7 +1101,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                 new_range = &range_list.back();
                 
                 e = junction_to_arc.insert(std::make_pair(edge, new_arc)).first;
-                edge_specifier[new_arc] = edge;
+                ai[new_arc].edge_specifier = edge;
                 edge_range[new_arc] = new_range;
                 
                 #ifdef ALLOW_DEBUG
@@ -1225,7 +1119,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             }
             
             count_raw_edge* rec = &edge_counts[new_arc];
-            next_value = rec->add_sub_counts_eg(node_it->exons, offset+1, offset + edge.id.count() - 2, next_value);
+            rec->add_sub_counts_eg(node_it->exons, offset+1, offset + edge.id.count() - 2, next_value);
             
             rcl = &node_counts[gnodes[end]];
             rcl->add_node_end(node_it->exons);
@@ -1263,7 +1157,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                 // if start == i we already hit a node, isn't that nice, no splitting
                 if (r_it!=NULL && r_it->start != i) {
                     // split up graph and edge objects
-                    split_edge(i, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                    split_edge(i, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
                     // r_it now points at the new created edge starting at i!
                 }
                 
@@ -1283,13 +1177,13 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                         if (i_it->end < r_it->end) {
                             // split overlap on inserted node
                             if (i_it->end > r_it->start)
-                                split_edge(i_it->end, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                                split_edge(i_it->end, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
                             i_it = node_it->ranges.next();
                             
                         } else {
                             // split the inserted node on overlap
                             if (r_it->end > i_it->start)
-                                split_edge(r_it->end, node_it->ranges, i_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                                split_edge(r_it->end, node_it->ranges, i_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
                             r_it = (*b_it)->ranges.next();
                         }
                     }
@@ -1355,7 +1249,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
         // if start == i we already hit a node, isn't that nice, no splitting
         if (r_it!=NULL && r_it->start != i) {
             // split up graph and edge objects
-            split_edge(i, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+            split_edge(i, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
         }
             
          if (node_it->exons->source_evidence && !source_set[i]) {
@@ -1384,7 +1278,10 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             #endif
             
             unsigned int offset = 0;
-            rcount next_value = node_it->exons->total_lefts + node_it->exons->hole_end_counts[0] - node_it->exons->hole_start_counts[0];
+            gmap<int, rcount> next_value;
+            for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
+                next_value[egi->first] = egi->second.total_lefts + egi->second.hole_end_counts[0] - egi->second.hole_start_counts[0];
+            }
             
             for(; r_it!=NULL ; r_it = (*b_it)->ranges.next() ) {
 
@@ -1398,14 +1295,14 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                 }
 
                count_raw_edge* rec = &edge_counts[r_it->arc];
-               next_value = rec->add_sub_counts_eg(node_it->exons, offset+1, offset + rec->size, next_value);
+               rec->add_sub_counts_eg(node_it->exons, offset+1, offset + rec->size, next_value);
                offset += rec->size + 1;
                
                 count_raw_node* rcl = &node_counts[gnodes[r_it->end]];
                 if (r_it->end == j) {
                     rcl->add_node_end(node_it->exons);
                 } else {
-                    next_value = rcl->add_node_initial_index(node_it->exons, offset, next_value);
+                    rcl->add_node_initial_index(node_it->exons, offset, next_value);
                 }
 
 //                logger::Instance()->debug(" Range ADD 1 " + std::to_string(r_it->start) + " " + std::to_string(r_it->end)  + "\n");
@@ -1420,13 +1317,13 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             if (r_it!=NULL && r_it->start != j) { 
                     
                 // split up graph and edge objects
-                split_edge(j, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                split_edge(j, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
 
                 //since r_it now points to second half of inserted edge, go one back
                 r_it = (*b_it)->ranges.previous();  
             
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                next_value = rec->add_sub_counts_eg(node_it->exons, offset+1, offset + rec->size, next_value);
+                rec->add_sub_counts_eg(node_it->exons, offset+1, offset + rec->size, next_value);
                 offset += rec->size + 1;
                 
                 count_raw_node* rcl = &node_counts[gnodes[r_it->end]];
@@ -1478,7 +1375,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             // if start == i we already hit a node, isn't that nice, no splitting
             if (r_it!=NULL && r_it->start != i) {
                 // split up graph and edge objects
-                split_edge(i, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                split_edge(i, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
             }
             
             // ########## now we move both ranges down in tandem to find stuff that needs joining!
@@ -1514,7 +1411,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
 //                        logger::Instance()->debug(" op2 \n");
                         
                         if (i_it->end > r_it->start)
-                            split_edge(i_it->end, (*b_it)->ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                            split_edge(i_it->end, (*b_it)->ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
                         i_it = node_it->ranges.next();
 
                     } else {
@@ -1523,7 +1420,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
 //                        logger::Instance()->debug(" op3 \n");
                         
                         if (r_it->end > r_it->start)
-                            split_edge(r_it->end, node_it->ranges, i_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+                            split_edge(r_it->end, node_it->ranges, i_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
                         r_it = (*b_it)->ranges.next();
                     }
                 }
@@ -1547,7 +1444,8 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
         }
                
         overlap_node* overlap = node_it->contained_in.back();
-        add_unaltering_contained_counts(overlap, node_it, edge_specifier, gnodes, edge_counts, node_counts);
+        add_unaltering_contained_counts(overlap, node_it, gnodes, edge_counts, node_counts);
+        if (options::Instance()->is_debug()) print_graph_debug(std::cout, node_counts, edge_counts);
     }
 
     // ####### fourth pass, add all nodes that where excluded from the direct overlap test (graph unchanging smaller, e.g clipped or differently sequenced, reads)
@@ -1559,7 +1457,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
     for(std::deque<contained_node>::iterator node_it = filtered_contained.begin(); node_it != filtered_contained.end(); ++node_it) {
         
         for(typename graph_list<overlap_node*>::iterator overlap = node_it->contained_in.begin(); overlap != node_it->contained_in.end(); ++overlap) { 
-             add_unaltering_contained_counts(*overlap, node_it, edge_specifier, gnodes, edge_counts, node_counts);
+             add_unaltering_contained_counts(*overlap, node_it, gnodes, edge_counts, node_counts);
         }
     }
   
@@ -1571,7 +1469,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
      
     
     #ifdef ALLOW_DEBUG
-   // if (options::Instance()->is_debug()) print_graph_debug(std::cout, node_counts, edge_counts);;
+    if (options::Instance()->is_debug()) print_graph_debug(std::cout, node_counts, edge_counts);
     #endif
    
     // we can kill no longer needed stuff
@@ -1717,94 +1615,96 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
         range_helper rh;   // we have no overlap nodes here anymore, so we create a new one
         arc_range* ar = edge_range[a];
         rh.addRange(ar);
-        
-        std::deque<unsigned int> jump_end;
-        std::deque<unsigned int> split_index_end;
-        std::deque<unsigned int> jump_start;
-        std::deque<unsigned int> split_index_start;
-        
+
         count_raw_edge* re = &edge_counts[a];
         // good arc, test for sudden increases!
         
-        exon_edge edge = edge_specifier[a];
-               
-        std::vector<rcount>::iterator ri = re->splits.begin();
-        unsigned int c = 0;
-        unsigned int index = edge.id.find_first();
-        rcount lastval = *ri;
-        unsigned int last_index = index;
-        ++ri;
-        ++c;
-        index = edge.id.find_next(index);
-        for (; ri != re->splits.end(); ++ri, ++c) {
+        exon_edge edge = ai[a].edge_specifier;
+        
+        for (gmap<int, count_raw_edge::series_struct>::iterator ssi = re->series.begin(); ssi != re->series.end(); ++ssi) {
+        
+            std::deque<unsigned int> jump_end;
+            std::deque<unsigned int> split_index_end;
+            std::deque<unsigned int> jump_start;
+            std::deque<unsigned int> split_index_start;
             
-            rcount n1 = std::max(lastval, *ri);
-            rcount n2 = std::min(lastval, *ri);
-            
-            #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Test Split " + std::to_string(n1) + " " + std::to_string(n2) + " " + std::to_string((n1 - n2) * 100 / float(n2))+ "\n");
-            #endif
-            
-            if (n2 <= options::Instance()->get_low_edge_mark() && n1 >= options::Instance()->get_low_edge_mark() + 1) {
-                force_split.insert(index);
-            }
-            
-            if ( (n1 - n2) * 100 / float(n2) >= options::Instance()->get_coverage_change_limit() ) {
-                
-                if (lastval > *ri) {
-                    // down trend
-                    #ifdef ALLOW_DEBUG
-                    logger::Instance()->debug("add end " + std::to_string(c) + "\n");
-                    #endif
-                    
-                    jump_end.push_back(c);
-                    split_index_end.push_back(index);
-                } else {
-                    
-                    #ifdef ALLOW_DEBUG
-                    logger::Instance()->debug("add start " + std::to_string(c-1) + "\n");
-                    #endif
-                    
-                    jump_start.push_back(c-1);
-                    split_index_start.push_back(last_index);
-                }
-            }
-            lastval = *ri;
-            last_index = index;
+            std::vector<rcount>::iterator ri = ssi->second.splits.begin();
+            unsigned int c = 0;
+            unsigned int index = edge.id.find_first();
+            rcount lastval = *ri;
+            unsigned int last_index = index;
+            ++ri;
+            ++c;
             index = edge.id.find_next(index);
-        }
-        
-        // post processing found sites
-        unsigned int last = re->splits.size() + 1; // can't possibly be in there
-        std::deque<unsigned int>::iterator spi = split_index_start.begin();
-        for (std::deque<unsigned int>::iterator  si = jump_start.begin(); si != jump_start.end(); ++si, ++spi) {
-            if (*si == 0 || *si - 1 != last ) {
-                // serious start evidence!
-                
+            for (; ri != ssi->second.splits.end(); ++ri, ++c) {
+
+                rcount n1 = std::max(lastval, *ri);
+                rcount n2 = std::min(lastval, *ri);
+
                 #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("CSTART" + std::to_string(*spi) + "\n");
+                logger::Instance()->debug("Test Split " + std::to_string(n1) + " " + std::to_string(n2) + " " + std::to_string((n1 - n2) * 100 / float(n2))+ "\n");
                 #endif
-                
-                force_split.insert(*spi);
+
+                if (n2 <= options::Instance()->get_low_edge_mark() && n1 >= options::Instance()->get_low_edge_mark() + 1) {
+                    force_split.insert(index);
+                }
+
+                if ( (n1 - n2) * 100 / float(n2) >= options::Instance()->get_coverage_change_limit() ) {
+
+                    if (lastval > *ri) {
+                        // down trend
+                        #ifdef ALLOW_DEBUG
+                        logger::Instance()->debug("add end " + std::to_string(c) + "\n");
+                        #endif
+
+                        jump_end.push_back(c);
+                        split_index_end.push_back(index);
+                    } else {
+
+                        #ifdef ALLOW_DEBUG
+                        logger::Instance()->debug("add start " + std::to_string(c-1) + "\n");
+                        #endif
+
+                        jump_start.push_back(c-1);
+                        split_index_start.push_back(last_index);
+                    }
+                }
+                lastval = *ri;
+                last_index = index;
+                index = edge.id.find_next(index);
             }
-            last = *si;
-        }
-        // post processing found sites
-        last = re->splits.size() + 5; // can't possibly be in there
-        std::deque<unsigned int>::reverse_iterator spr = split_index_end.rbegin();
-        for (std::deque<unsigned int>::reverse_iterator  si = jump_end.rbegin(); si != jump_end.rend(); ++si, ++spr) {
-            if (*si + 1 != last ) {
-                // serious end evidence!
-                
-                #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("CEND" + std::to_string(*spr) + "\n");
-                #endif
-                
-                force_split.insert(*spr);
+
+            // post processing found sites
+            unsigned int last = ssi->second.splits.size() + 1; // can't possibly be in there
+            std::deque<unsigned int>::iterator spi = split_index_start.begin();
+            for (std::deque<unsigned int>::iterator  si = jump_start.begin(); si != jump_start.end(); ++si, ++spi) {
+                if (*si == 0 || *si - 1 != last ) {
+                    // serious start evidence!
+
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("CSTART" + std::to_string(*spi) + "\n");
+                    #endif
+
+                    force_split.insert(*spi);
+                }
+                last = *si;
             }
-            last = *si;
+            // post processing found sites
+            last = ssi->second.splits.size() + 5; // can't possibly be in there
+            std::deque<unsigned int>::reverse_iterator spr = split_index_end.rbegin();
+            for (std::deque<unsigned int>::reverse_iterator  si = jump_end.rbegin(); si != jump_end.rend(); ++si, ++spr) {
+                if (*si + 1 != last ) {
+                    // serious end evidence!
+
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("CEND" + std::to_string(*spr) + "\n");
+                    #endif
+
+                    force_split.insert(*spr);
+                }
+                last = *si;
+            }
         }
-        
     }
     
     for (ListDigraph::NodeIt n(g); n != INVALID; ++n) {
@@ -1817,10 +1717,12 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             }
             
             count_raw_edge* re = &edge_counts[a];
-            rcount v = std::max(re->splits.front(), re->splits.back()); 
-            if (!has_left || v > left) {
-                left = v;
-                has_left = true;
+            for (gmap<int, count_raw_edge::series_struct>::iterator ssi = re->series.begin(); ssi != re->series.end(); ++ssi) {
+                rcount v = std::max(ssi->second.splits.front(), ssi->second.splits.back()); 
+                if (!has_left || v > left) {
+                    left = v;
+                    has_left = true;
+                }
             }
         }
         
@@ -1834,13 +1736,15 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             }
             
             count_raw_edge* re = &edge_counts[a];
-            rcount v = std::max(re->splits.front(), re->splits.back()); 
-            if (!has_right || v > right) {
-                right = v;
-                if (!has_right) {
-                    exon_edge edge = edge_specifier[a];
-                    index = edge.id.find_first();
-                    has_right = true;
+            for (gmap<int, count_raw_edge::series_struct>::iterator ssi = re->series.begin(); ssi != re->series.end(); ++ssi) {
+                rcount v = std::max(ssi->second.splits.front(), ssi->second.splits.back()); 
+                if (!has_right || v > right) {
+                    right = v;
+                    if (!has_right) {
+                        exon_edge edge = ai[a].edge_specifier;
+                        index = edge.id.find_first();
+                        has_right = true;
+                    }
                 }
             }
         }
@@ -1875,11 +1779,11 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
 		}
 
 	 	#ifdef ALLOW_DEBUG
-		logger::Instance()->debug("Snap Edge " + std::to_string(g.id(arc)) +  " "+ edge_specifier[arc].to_string() + "\n");
+		logger::Instance()->debug("Snap Edge " + std::to_string(g.id(arc)) +  " "+ ai[arc].edge_specifier.to_string() + "\n");
 		if (options::Instance()->is_debug()) print_graph_debug(std::cout, node_counts, edge_counts);;
 		#endif        
 
-		exon_edge edge = edge_specifier[arc];
+		exon_edge edge = ai[arc].edge_specifier;
 		unsigned int index = edge.id.find_first();
 		index = edge.id.find_next(index);
 		
@@ -1898,10 +1802,10 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
 		    #endif
 
 		    bool is_force = force_split.find(index) != force_split.end();
-		    was_split = was_split or is_force;		            
+		    was_split = was_split || is_force;		            
     
 		    if (is_force ) {
-		        split_edge(index, rh, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
+		        split_edge(index, rh, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
 		    }
 		    index = edge.id.find_next(index);
 		}
@@ -1928,11 +1832,11 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
          
         if (node_it->exons->source_evidence && node_it->exons->range_start != node_it->contained_in.front()->exons->range_start) {
             overlap_node* overlap = node_it->contained_in.back();
-            add_contained_start(overlap->ranges, node_it->exons->range_start, edge_specifier, node_counts, edge_range, edge_counts, range_list, true);
+            add_contained_start(overlap->ranges, node_it->exons->range_start, node_counts, edge_range, edge_counts, range_list, true);
         }
         if (node_it->exons->drain_evidence && node_it->exons->range_end != node_it->contained_in.front()->exons->range_end) {
             overlap_node* overlap = node_it->contained_in.back();              
-            add_contained_end(overlap->ranges, node_it->exons->range_end, edge_specifier, node_counts, edge_range, edge_counts, range_list, true);
+            add_contained_end(overlap->ranges, node_it->exons->range_end, node_counts, edge_range, edge_counts, range_list, true);
         }
     }
    
@@ -1947,7 +1851,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             continue;
         }
         
-        exon_edge edge = edge_specifier[arc];
+        exon_edge edge = ai[arc].edge_specifier;
         unsigned int index = edge.id.find_first();
         index = edge.id.find_next(index);
         
@@ -1982,12 +1886,10 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                 }
             }
             
-           // split_edge(index, rh, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);
-
             if (gnode_set[index] && ( is_source || is_drain) ) {
-                split_edge_without_compacting(index, rh, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnodes, range_list, true);
+                split_edge_without_compacting(index, rh, r_it, edge_range, edge_counts, node_counts, gnodes, range_list, true);
             } else { 
-                split_edge_without_compacting(index, rh, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnodes, range_list, false);
+                split_edge_without_compacting(index, rh, r_it, edge_range, edge_counts, node_counts, gnodes, range_list, false);
             }
             index = edge.id.find_next(index);
         }
@@ -2026,7 +1928,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                         continue;
                     }
                     
-                    if (edge_specifier[a1] == edge_specifier[a2]) {
+                    if (ai[a1].edge_specifier == ai[a2].edge_specifier) {
                         // join those!
                         
                         unsigned int ic1 = 0;
@@ -2070,7 +1972,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
                         continue;
                     }
                     
-                    if (edge_specifier[a1] == edge_specifier[a2]) {
+                    if (ai[a1].edge_specifier == ai[a2].edge_specifier) {
                         // join those!
                         
                         unsigned int ic1 = 0;
@@ -2106,8 +2008,7 @@ void base_manager::create_final_graph( std::deque<overlap_node> &nodes,  std::de
             break;
         }
     }
-    
-    
+     
     create_final_capacities(node_counts, edge_counts, gnodes, gnode_set);
     
     delete [] gnode_set;
@@ -2145,14 +2046,14 @@ void base_manager::create_final_capacities(
             ListDigraph::Node nn = g.split(n, false);
             ListDigraph::Arc na = g.addArc(n, nn);
                 
-            edge_type[na] = edge_types::NODE;
+            ai[na].edge_type = edge_types::NODE;
             
-            create_region_from_node(i, node_counts[n], regions[na]);
-            create_node_capacities(na, regions[na]);
+            create_region_from_node(i, node_counts[n], fs[na]);
+            create_node_capacities(na, fs[na]);
                    
             node_index[nn] = i;    
-            edge_specifier[na].node_index = i;
-            edge_lengths[na].middle = meta->exons[i].exon_length;
+            ai[na].edge_specifier.node_index = i;
+            ai[na].edge_lengths.middle = meta->exons[i].exon_length;
                                
             // we do not add a specifier to exon edge
         }
@@ -2169,34 +2070,34 @@ void base_manager::create_final_capacities(
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
         ListDigraph::Arc arc(a);
         
-        if (edge_type[arc] == edge_types::NODE ) {
+        if (ai[arc].edge_type == edge_types::NODE ) {
             continue;
         }
         
         // test if the edge is a source edge
         if(g.source(arc) == s || g.target(arc) == t) {
-            edge_type[arc] = edge_types::HELPER;
+            ai[arc].edge_type = edge_types::HELPER;
             continue;
         }
         
-        if (edge_type[arc] == edge_types::BACKLINK ) {
-            create_region_from_edge(edge_specifier[arc], edge_counts[arc], regions[arc]);
-            create_edge_capacities(arc, regions[arc]);
+        if (ai[arc].edge_type == edge_types::BACKLINK ) {
+            create_region_from_edge(ai[arc].edge_specifier, edge_counts[arc], fs[arc]);
+            create_edge_capacities(arc, fs[arc]);
             continue;
         }
         
-        edge_type[arc] = edge_types::EXON;
+        ai[arc].edge_type = edge_types::EXON;
         compute_edge_length(arc);
-        create_region_from_edge(edge_specifier[arc], edge_counts[arc], regions[arc]);
-        create_edge_capacities(arc, regions[arc]);
+        create_region_from_edge(ai[arc].edge_specifier, edge_counts[arc], fs[arc]);
+        create_edge_capacities(arc, fs[arc]);
     }
 
 }
 
 void base_manager::compute_edge_length( ListDigraph::Arc arc) {
     
-    exon_edge* edge = &edge_specifier[arc];
-    edge_length* edge_length = &edge_lengths[arc];
+    exon_edge* edge = &ai[arc].edge_specifier;
+    edge_length* edge_length = &ai[arc].edge_lengths;
     
     unsigned int index = edge->id.find_first();
     edge_length->first_exon = meta->exons[index].exon_length;
@@ -2209,8 +2110,8 @@ void base_manager::compute_edge_length( ListDigraph::Arc arc) {
     unsigned int pre_index = edge->id.find_next(index);
     
     if (meta->exons[index].right + 1 == meta->exons[pre_index].left) {
-        edge_specifier[arc].left_consecutive = true;
-        edge_specifier[arc].right_consecutive = true;
+        ai[arc].edge_specifier.left_consecutive = true;
+        ai[arc].edge_specifier.right_consecutive = true;
     }
     
     index = edge->id.find_next(pre_index);
@@ -2223,9 +2124,9 @@ void base_manager::compute_edge_length( ListDigraph::Arc arc) {
         edge_length->middle += meta->exons[pre_index].exon_length;
         
         if (meta->exons[pre_index].right + 1 == meta->exons[index].left) {
-            edge_specifier[arc].right_consecutive = true;
+            ai[arc].edge_specifier.right_consecutive = true;
         } else {
-            edge_specifier[arc].right_consecutive = false;
+            ai[arc].edge_specifier.right_consecutive = false;
         }
         
         pre_index = index;
@@ -2237,7 +2138,6 @@ void base_manager::compute_edge_length( ListDigraph::Arc arc) {
 
 void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
     std::deque<contained_node>::iterator &node_it,
-    ListDigraph::ArcMap<exon_edge> &edge_specifier,
     ListDigraph::Node* gnodes,
     ListDigraph::ArcMap<count_raw_edge> &edge_counts,
     ListDigraph::NodeMap<count_raw_node> &node_counts) {
@@ -2250,32 +2150,48 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
     unsigned int i = node_it->exons->range_start;
     unsigned int j = node_it->exons->range_end;
 
-     #ifdef ALLOW_DEBUG
+    #ifdef ALLOW_DEBUG
     logger::Instance()->debug("indices " + std::to_string(i) + " " + std::to_string(j) + "\n");
     #endif 
     
     unsigned int offset_new_exons = 0;
     unsigned int offset_in_arc = 0;
-    rcount next_value = 0;
+    gmap<int, rcount> next_value;
 
     arc_range* r_it = overlap->ranges.begin();
     for(; r_it!=NULL ; r_it = overlap->ranges.next() ) {
 
         if (r_it->start <= i && r_it->end >= i) {
 
-//            logger::Instance()->debug("Test Arc 1 " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
-//            logger::Instance()->debug("Offset1a " +  std::to_string(offset) + " \n");
-            
+             #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Test Arc 1 " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
+            #endif 
             // start area
             if (i == r_it->start ) {
                 
                 count_raw_node* rcl = &node_counts[gnodes[i]];
                 rcl->add_node_start(node_it->exons); 
                 
-                next_value = node_it->exons->total_lefts + node_it->exons->hole_end_counts[0] - node_it->exons->hole_start_counts[0];
-                count_raw_edge* rec = &edge_counts[r_it->arc];
-                rec->splits[0] += next_value;
+                if (i == j) {
+                    // just this node left
+                    break;
+                }
                 
+                count_raw_edge* rec = &edge_counts[r_it->arc];
+                for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
+                    next_value[egi->first] = egi->second.total_lefts + egi->second.hole_end_counts[0] - egi->second.hole_start_counts[0];
+                    if (!rec->series[egi->first].initialized) {
+                        rec->series[egi->first].starts.assign(rec->size, {});
+                        rec->series[egi->first].ends.assign(rec->size, {});
+                        rec->series[egi->first].splits.assign(rec->size + 1, 0);
+                        rec->series[egi->first].initialized = true;
+                    }
+                    rec->series[egi->first].splits[0] += next_value[egi->first];
+                    
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("iS+ " +  std::to_string(egi->first) + " " + std::to_string(next_value[egi->first]) + " to " + std::to_string(rec->series[egi->first].splits[0]) + " \n");
+                    #endif 
+                }
             } else if (i == r_it->end) {
                 
                 count_raw_node* rcl = &node_counts[gnodes[i]];
@@ -2291,13 +2207,20 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 
 //                logger::Instance()->debug("Switch Arc " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
                 
-                next_value = node_it->exons->total_lefts + node_it->exons->hole_end_counts[0] - node_it->exons->hole_start_counts[0];
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                rec->splits[0] += next_value;
-                
+                for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
+                    next_value[egi->first] = egi->second.total_lefts + egi->second.hole_end_counts[0] - egi->second.hole_start_counts[0];
+                    if (!rec->series[egi->first].initialized) {
+                        rec->series[egi->first].starts.assign(rec->size, {});
+                        rec->series[egi->first].ends.assign(rec->size, {});
+                        rec->series[egi->first].splits.assign(rec->size + 1, 0);
+                        rec->series[egi->first].initialized = true;
+                    }
+                    rec->series[egi->first].splits[0] += next_value[egi->first];
+                }
             } else  {
                 
-                unsigned int c = find_index_global_to_sub(i, &edge_specifier[r_it->arc]);
+                unsigned int c = find_index_global_to_sub(i, &ai[r_it->arc].edge_specifier);
                 // the start hits in the middle of existing edge
                 // so we add in there
                 
@@ -2306,12 +2229,11 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 unsigned int index = edge_counts[r_it->arc].size + 1 - c;
                 
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                next_value = rec->add_sub_counts_start(node_it->exons, index);
+                rec->add_sub_counts_start(node_it->exons, index, next_value);
                 
                 offset_in_arc = index+1;
             }
             
-//            logger::Instance()->debug("Next Value a " +  std::to_string(next_value) + " \n");
             // middle and end!
             
             if (j < r_it->end && i != j) {
@@ -2321,20 +2243,18 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 
                 ++offset_new_exons;
                 
-                unsigned int c1 = find_index_global_to_sub(i, &edge_specifier[r_it->arc]);
-                unsigned int c2 = find_index_global_to_sub(j, &edge_specifier[r_it->arc]);
+                unsigned int c1 = find_index_global_to_sub(i, &ai[r_it->arc].edge_specifier);
+                unsigned int c2 = find_index_global_to_sub(j, &ai[r_it->arc].edge_specifier);
                 
                 unsigned int l = edge_counts[r_it->arc].size + 1 - c2;
                 
-                
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                rec->add_sub_counts_end(node_it->exons, l);
-                
-                next_value = rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + c1 - c2 - 2 , offset_in_arc + 1, next_value);
+                rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + c1 - c2 - 2 , offset_in_arc + 1, next_value);
+                rec->add_sub_counts_end(node_it->exons, l, next_value);
                 
             } else if (i != j && i != r_it->end) {  // j >= r_it_end 
                 
-                unsigned int c = find_index_global_to_sub(i, &edge_specifier[r_it->arc]);
+                unsigned int c = find_index_global_to_sub(i, &ai[r_it->arc].edge_specifier);
                  
                 --c; // start gone
                 ++offset_new_exons;
@@ -2343,9 +2263,11 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                     --c;
                 }
 
+//                logger::Instance()->debug("Special CASE 2\n");
+                
                 // we used up the first one
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                next_value = rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + c - 1, edge_counts[r_it->arc].size + 1 - c , next_value);
+                rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + c - 1, edge_counts[r_it->arc].size + 1 - c , next_value);
                 offset_new_exons += c; 
 
                 if (j == r_it->end) {
@@ -2353,13 +2275,11 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                     rcl->add_node_end(node_it->exons); 
                 } else { // if (j > r_it->end) {
                     count_raw_node* rcl = &node_counts[gnodes[r_it->end]];
-                    next_value = rcl->add_node_initial_index(node_it->exons, offset_new_exons, next_value);
+                    rcl->add_node_initial_index(node_it->exons, offset_new_exons, next_value);
                 }
                 ++offset_new_exons;
 
             }
-            
-//             logger::Instance()->debug("Next Value b " +  std::to_string(next_value) + " \n");
             
             break;
         }
@@ -2382,14 +2302,21 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 
 //                logger::Instance()->debug("End condition  \n");
                 
-                unsigned int c = find_index_global_to_sub(j, &edge_specifier[r_it->arc]);
+                unsigned int c = find_index_global_to_sub(j, &ai[r_it->arc].edge_specifier);
                 unsigned int l = edge_counts[r_it->arc].size + 1 - c;
                 
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                rec->add_sub_counts_end(node_it->exons, l);
-                
-                rec->splits[0] += next_value;
-                next_value = rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + l - 1, 1 , next_value);
+                for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
+                    if (!rec->series[egi->first].initialized) {
+                        rec->series[egi->first].starts.assign(rec->size, {});
+                        rec->series[egi->first].ends.assign(rec->size, {});
+                        rec->series[egi->first].splits.assign(rec->size + 1, 0);
+                        rec->series[egi->first].initialized = true;
+                    }
+                    rec->series[egi->first].splits[0] += next_value[egi->first];
+                }
+                rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + l - 1, 1 , next_value);
+                rec->add_sub_counts_end(node_it->exons, l, next_value);
                 
                 offset_new_exons += l + 1;
                 
@@ -2400,8 +2327,16 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 
                 // so we have a full arc to add!
                 count_raw_edge* rec = &edge_counts[r_it->arc];
-                rec->splits[0] += next_value;
-                next_value = rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + edge_counts[r_it->arc].size-1, 1 , next_value);
+                for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
+                    if (!rec->series[egi->first].initialized) {
+                        rec->series[egi->first].starts.assign(rec->size, {});
+                        rec->series[egi->first].ends.assign(rec->size, {});
+                        rec->series[egi->first].splits.assign(rec->size + 1, 0);
+                        rec->series[egi->first].initialized = true;
+                    }
+                    rec->series[egi->first].splits[0] += next_value[egi->first];
+                }
+                rec->add_sub_counts_eg_range(node_it->exons, offset_new_exons, offset_new_exons + edge_counts[r_it->arc].size-1, 1 , next_value);
                 offset_new_exons += edge_counts[r_it->arc].size + 1;
                 
                 if (j == r_it->end) {
@@ -2410,7 +2345,7 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                     break;
                 } else if (j > r_it->end) {
                     count_raw_node* rcl = &node_counts[gnodes[r_it->end]];
-                    next_value = rcl->add_node_initial_index(node_it->exons, offset_new_exons-1, next_value);
+                    rcl->add_node_initial_index(node_it->exons, offset_new_exons-1, next_value);
                 } 
             }
             
@@ -2435,7 +2370,6 @@ unsigned int base_manager::find_index_global_to_sub(unsigned int start, exon_edg
 
 void base_manager::add_contained_start(range_helper &ranges,
     unsigned int i,
-    ListDigraph::ArcMap<exon_edge> &edge_specifier,
     ListDigraph::NodeMap<count_raw_node> &node_counts,
     ListDigraph::ArcMap<arc_range*> &edge_range,
     ListDigraph::ArcMap<count_raw_edge> &edge_counts,
@@ -2456,7 +2390,7 @@ void base_manager::add_contained_start(range_helper &ranges,
                     start = g.target(r_it->arc);
                 } else {
                     // we need to add a new node
-                    split_edge_without_compacting(i, ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, NULL, range_list, false);
+                    split_edge_without_compacting(i, ranges, r_it, edge_range, edge_counts, node_counts, NULL, range_list, false);
                     start = g.source(r_it->arc);
                 }
                 
@@ -2482,7 +2416,6 @@ void base_manager::add_contained_start(range_helper &ranges,
 
 void base_manager::snap_contained(range_helper &ranges,
     unsigned int i,
-    ListDigraph::ArcMap<exon_edge> &edge_specifier,
     ListDigraph::NodeMap<count_raw_node> &node_counts,
     ListDigraph::ArcMap<arc_range*> &edge_range,
     ListDigraph::ArcMap<count_raw_edge> &edge_counts,
@@ -2502,7 +2435,7 @@ void base_manager::snap_contained(range_helper &ranges,
         if (r_it->start <= i && r_it->end >= i) {
             // we need to add a new node;
             if (r_it->start != i && i != r_it->end) {
-                split_edge(i, ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);      
+                split_edge(i, ranges, r_it, edge_range, edge_counts, node_counts, gnode_set, gnodes, junction_to_arc, range_list);      
             }
 
             break;
@@ -2512,7 +2445,6 @@ void base_manager::snap_contained(range_helper &ranges,
 
 void base_manager::add_contained_end(range_helper &ranges,
     unsigned int i,
-    ListDigraph::ArcMap<exon_edge> &edge_specifier,
     ListDigraph::NodeMap<count_raw_node> &node_counts,
     ListDigraph::ArcMap<arc_range*> &edge_range,
     ListDigraph::ArcMap<count_raw_edge> &edge_counts,
@@ -2533,7 +2465,7 @@ void base_manager::add_contained_end(range_helper &ranges,
                     start = g.target(r_it->arc);
                 } else {
                     // we need to add a new node
-                    split_edge_without_compacting(i, ranges, r_it, edge_specifier, edge_range, edge_counts, node_counts, NULL, range_list, false);
+                    split_edge_without_compacting(i, ranges, r_it, edge_range, edge_counts, node_counts, NULL, range_list, false);
                     start = g.source(r_it->arc);
                 }
                 
@@ -2559,8 +2491,7 @@ void base_manager::add_contained_end(range_helper &ranges,
 void base_manager::split_edge(unsigned int i,
         range_helper &ranges, // backlinked node that overlaps
         arc_range*& r_it, // range of overlap
-        
-         ListDigraph::ArcMap<exon_edge> &edge_specifier,
+
          ListDigraph::ArcMap<arc_range*> &edge_range,
          ListDigraph::ArcMap<count_raw_edge> &edge_counts,
          ListDigraph::NodeMap<count_raw_node> &node_counts,
@@ -2571,7 +2502,7 @@ void base_manager::split_edge(unsigned int i,
     
     // this arc needs to be split up
     ListDigraph::Arc arc_save = r_it->arc;
-    exon_edge edge = edge_specifier[r_it->arc];
+    exon_edge edge = ai[r_it->arc].edge_specifier; 
     exon_edge left;
     edge.left_split(i, left);
     exon_edge right;
@@ -2593,32 +2524,52 @@ void base_manager::split_edge(unsigned int i,
     // test if left split arc already exist!
     typename gmap<exon_edge, ListDigraph::Arc>::iterator lm = junction_to_arc.find(left);
     if (lm == junction_to_arc.end()) {
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("New Left.\n");
+        #endif
+        
         // so the arc really does not exist already, so make it
         left_a = g.addArc(gnodes[r_it->start], gnodes[i]);
         range_list.push_back(arc_range(r_it->start, i, left_a));
         rl = &range_list.back();
         
         lm = junction_to_arc.insert(std::make_pair(left, left_a)).first;
-        edge_specifier[left_a] = left;
+        ai[left_a].edge_specifier = left;
         edge_range[left_a] = rl;
         
     } else {
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Found Left.\n");
+        #endif
+        
         left_a = lm->second;
         rl = edge_range[left_a];
     }
     // test if right split arc already exist!
     typename gmap<exon_edge, ListDigraph::Arc>::iterator lr = junction_to_arc.find(right);
     if (lr == junction_to_arc.end()) {
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("New Right.\n");
+        #endif
+        
         // so the arc really does not exist already, so make it
         right_a = g.addArc(gnodes[i], gnodes[r_it->end]);
         range_list.push_back(arc_range(i, r_it->end, right_a));
         rr = &range_list.back();
                
         lr = junction_to_arc.insert(std::make_pair(right, right_a)).first;
-        edge_specifier[right_a] = right;
+        ai[right_a].edge_specifier = right;
         edge_range[right_a] = rr;
         
     } else {
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Found Right.\n");
+        #endif
+        
         right_a = lr->second;
         rr = edge_range[right_a];
     }
@@ -2642,8 +2593,6 @@ void base_manager::split_edge(unsigned int i,
 void base_manager::split_edge_without_compacting(unsigned int i,
         range_helper &ranges, // backlinked node that overlaps
         arc_range*& r_it, // range of overlap
-        
-         ListDigraph::ArcMap<exon_edge> &edge_specifier,
          ListDigraph::ArcMap<arc_range*> &edge_range,
          ListDigraph::ArcMap<count_raw_edge> &edge_counts,
          ListDigraph::NodeMap<count_raw_node> &node_counts,
@@ -2652,7 +2601,7 @@ void base_manager::split_edge_without_compacting(unsigned int i,
     
     // this arc needs to be split up
     ListDigraph::Arc arc_save = r_it->arc;
-    exon_edge edge = edge_specifier[r_it->arc];
+    exon_edge edge = ai[r_it->arc].edge_specifier;
     exon_edge left;
     edge.left_split(i, left);
     exon_edge right;
@@ -2679,7 +2628,7 @@ void base_manager::split_edge_without_compacting(unsigned int i,
     range_list.push_back(arc_range(r_it->start, i, left_a));
     rl = &range_list.back();
 
-    edge_specifier[left_a] = left;
+    ai[left_a].edge_specifier = left;
     edge_range[left_a] = rl;
 
    
@@ -2688,7 +2637,7 @@ void base_manager::split_edge_without_compacting(unsigned int i,
     range_list.push_back(arc_range(i, r_it->end, right_a));
     rr = &range_list.back();
 
-    edge_specifier[right_a] = right;
+    ai[right_a].edge_specifier = right;
     edge_range[right_a] = rr;
         
     
@@ -2733,9 +2682,9 @@ void base_manager::create_region(unsigned int i, rcount basevalue, std::map< rpo
     
     while (li != lefts.end() || ( ri != rights.end() && ri->first + 1 <= end )) {
         
-//        logger::Instance()->debug("Value: " + std::to_string(value) + "\n");
-//        logger::Instance()->debug("STEP: " + std::to_string(li->first) + "-" +std::to_string(li->second) + " " + std::to_string(ri->first) + "-" +std::to_string(ri->second) + "\n");
-//        
+        logger::Instance()->debug("Value: " + std::to_string(value) + "\n");
+        logger::Instance()->debug("STEP: " + std::to_string(li->first) + "-" +std::to_string(li->second) + " " + std::to_string(ri->first) + "-" +std::to_string(ri->second) + "\n");
+        
         pre_value = value;
         pre_pos = pos;
                 
@@ -2848,20 +2797,34 @@ void base_manager::create_region(unsigned int i, rcount basevalue, std::map< rpo
     #endif
 }
 
-void base_manager::create_region_from_node(unsigned int i, count_raw_node &node_counts, region &r) {
+void base_manager::create_region_from_node(unsigned int i, count_raw_node &node_counts, flow_series &fs) {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Create Node Region " + std::to_string(i) +" " + std::to_string(node_counts.total_lefts) + " " + std::to_string(node_counts.total_rights) + "\n");
+    logger::Instance()->debug("Create Node Region " + std::to_string(i) + "\n");
     #endif
     
-    rcount total = 0;
-    for (std::map< rpos,rcount >::iterator ti = node_counts.lefts.begin(); ti != node_counts.lefts.end(); ++ti) {
-        total += ti->second; 
-    }
-
+    for(gmap<int, count_raw_node::series_struct>::iterator ssi = node_counts.series.begin(); ssi != node_counts.series.end(); ++ssi) {
     
-    r.total_length = meta->exons[i].right - meta->exons[i].left + 1;
-    create_region(i, node_counts.total_rights, node_counts.lefts, node_counts.rights, r);
+        region r;
+        r.total_length = meta->exons[i].right - meta->exons[i].left + 1;
+        create_region(i, ssi->second.total_rights, ssi->second.lefts, ssi->second.rights, r);
+        
+        fs.series[ssi->first].capacity = r.get_max();
+        fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 1.0f), r.total_length);
+        
+        fs.series[ssi->first].average_to_first_zero_from_left = r.get_average_to_first_zero_from_left();
+        fs.series[ssi->first].average_to_first_zero_from_right = r.get_average_to_first_zero_from_right();
+        fs.series[ssi->first].deviation = r.get_deviation();
+        fs.series[ssi->first].left = r.get_left();
+        fs.series[ssi->first].right = r.get_right();
+        fs.series[ssi->first].length = r.total_length;
+        fs.series[ssi->first].length_to_first_zero_left = r.get_length_to_first_zero_from_left();
+        fs.series[ssi->first].length_to_first_zero_right = r.get_length_to_first_zero_from_right();
+        fs.series[ssi->first].region_average = r.get_average();
+        fs.series[ssi->first].region_max = r.get_max();
+        fs.series[ssi->first].region_min = r.get_min();
+        fs.series[ssi->first].right = r.get_right();   
+    }
     
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("------- \n");
@@ -2869,38 +2832,58 @@ void base_manager::create_region_from_node(unsigned int i, count_raw_node &node_
 }
 
                 
-void base_manager::create_region_from_edge(exon_edge& edge, count_raw_edge &edge_counts, region &r) {
+void base_manager::create_region_from_edge(exon_edge& edge, count_raw_edge &edge_counts, flow_series &fs) {
     
-    unsigned int c = 0; // index in count
-    unsigned int index = edge.id.find_first();
-    index = edge.id.find_next(index);
-     r.total_length = 0;
+    for(gmap<int, count_raw_edge::series_struct>::iterator ssi = edge_counts.series.begin(); ssi != edge_counts.series.end(); ++ssi) {
     
-    for(; c < edge_counts.size; ++c) {
-        
-        #ifdef ALLOW_DEBUG
-        logger::Instance()->debug("Create Edge Region " + std::to_string(index) + "\n");
-        #endif
-        
-        create_region(index, edge_counts.splits[c], edge_counts.starts[c].ref(), edge_counts.ends[c].ref(), r);
-
-        r.total_length += meta->exons[index].right - meta->exons[index].left + 2;
-        r.subregions.push_back( region::subregion(meta->exons[index].right, meta->exons[index].right, edge_counts.splits[c+1], edge_counts.splits[c+1], edge_counts.splits[c+1]));
-
+        region r;
+        unsigned int c = 0; // index in count
+        unsigned int index = edge.id.find_first();
         index = edge.id.find_next(index);
-        
-        #ifdef ALLOW_DEBUG
-        logger::Instance()->debug("------- \n");
-        #endif
-    }
-    
-    #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Region Split " + std::to_string(meta->exons[index].left) + " " + std::to_string(edge_counts.splits[0]) + "\n");
-    #endif
+        r.total_length = 0;
 
-    r.subregions.push_back( region::subregion(meta->exons[index].left, meta->exons[index].left, edge_counts.splits[0], edge_counts.splits[0], edge_counts.splits[0]));
-    r.total_length += 1;
-     
+        r.subregions.push_back( region::subregion(meta->exons[index].left, meta->exons[index].left, ssi->second.splits[0], ssi->second.splits[0], ssi->second.splits[0]));
+        r.total_length += 1;
+        
+        for(; c < edge_counts.size; ++c) {
+
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Create Edge Region " + std::to_string(index) + "\n");
+            #endif
+
+            create_region(index, ssi->second.splits[c], ssi->second.starts[c].ref(), ssi->second.ends[c].ref(), r);
+
+            r.total_length += meta->exons[index].right - meta->exons[index].left + 2;
+            r.subregions.push_back( region::subregion(meta->exons[index].right, meta->exons[index].right, ssi->second.splits[c+1], ssi->second.splits[c+1], ssi->second.splits[c+1]));
+
+            index = edge.id.find_next(index);
+
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("------- \n");
+            #endif
+        }
+
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Region Split \n");
+        #endif
+
+        fs.series[ssi->first].capacity = r.get_max();
+        fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 1.0f), r.total_length);
+        
+        fs.series[ssi->first].average_to_first_zero_from_left = r.get_average_to_first_zero_from_left();
+        fs.series[ssi->first].average_to_first_zero_from_right = r.get_average_to_first_zero_from_right();
+        fs.series[ssi->first].deviation = r.get_deviation();
+        fs.series[ssi->first].left = r.get_left();
+        fs.series[ssi->first].right = r.get_right();
+        fs.series[ssi->first].length = r.total_length;
+        fs.series[ssi->first].length_to_first_zero_left = r.get_length_to_first_zero_from_left();
+        fs.series[ssi->first].length_to_first_zero_right = r.get_length_to_first_zero_from_right();
+        fs.series[ssi->first].region_average = r.get_average();
+        fs.series[ssi->first].region_max = r.get_max();
+        fs.series[ssi->first].region_min = r.get_min();
+        fs.series[ssi->first].right = r.get_right();
+    }
+
 }
 
 
@@ -2939,36 +2922,6 @@ void base_manager::print_raw( std::deque<overlap_node> &nodes,  std::deque<conta
     logger::Instance()->debug("====================================================\n");
 }
 
-void base_manager::print_graph(std::ostream &os) {
-   
-     os << "IN: " << meta->size << "\n" ;
-    
-    if (meta->size != 1) {
-        // there is a graph!
-        
-        os << "WRITE GRAPH: \n";
-        
-        digraphWriter(g, os)
-            .arcMap("edge_specifier", edge_specifier)
-            .arcMap("edge_type", edge_type)
-            .arcMap("edge_lengths", edge_lengths)
-            .node("source", s)
-            .node("drain", t)
-            .run();  
-    
-    }
-    
-    for (int j = 0; j < meta->size; j++) {
-        os << "Exon" << std::to_string(j) << " " << std::to_string(meta->exons[j].left) << "-" << std::to_string(meta->exons[j].right)  << "\n";
-    }
-    
-    // also print singles
-    for( std::set<single_exon >::iterator i = single_exons.begin(); i != single_exons.end(); ++i) {
-        os << "Single Exon from " << std::to_string(meta->exons[i->meta].left) << "-" << std::to_string(meta->exons[i->meta].right)  << "\n";
-    }
-}
-
-
 void base_manager::print_graph_debug(std::ostream &os, ListDigraph::NodeMap<count_raw_node> &node_counts, ListDigraph::ArcMap<count_raw_edge> &edge_counts) {
     
     if (meta->size != 1) {
@@ -2976,21 +2929,11 @@ void base_manager::print_graph_debug(std::ostream &os, ListDigraph::NodeMap<coun
         ListDigraph::NodeMap<capacity_type> nc(g);
         ListDigraph::ArcMap<capacity_type> ec(g);
         
-        for (ListDigraph::NodeIt a(g); a != INVALID; ++a) {
-            nc[a] = node_counts[a].get_max();
-        }
-        
-        for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
-            ec[a] = edge_counts[a].get_min();
-        }
-        
         // there is a graph!
         digraphWriter(g, os)
-            .arcMap("edge_specifier", edge_specifier)
-            .arcMap("edge_type", edge_type)
-            .arcMap("edge_lengths", edge_lengths)
-            .arcMap("edge_coverage", ec)
-            .nodeMap("node_coverage", nc)
+            .arcMap("ai", ai)
+            .arcMap("edge_coverage", edge_counts)
+            .nodeMap("node_coverage", node_counts)
             .node("source", s)
             .node("drain", t)
             .run();  
@@ -3006,18 +2949,50 @@ bool base_manager::has_single_exons() {
 void base_manager::add_single_exons() {
     
     for (std::set<single_exon >::iterator it = single_exons.begin(); it != single_exons.end(); ++it) {
-        transcripts.transcripts.push_back(lazy<transcript>());
-    
-        transcripts.transcripts.back()->found_edge =  exon_edge(meta->size);
-        transcripts.transcripts.back()->found_edge.set(it->meta, true);
-        transcripts.transcripts.back()->flow = it->capacity;
-        transcripts.transcripts.back()->mean = it->capacity;
-        transcripts.transcripts.back()->score = it->capacity;
-        transcripts.transcripts.back()->guided = it->guide;
+        float combined = 0;
+        for (std::set<int>::iterator iii = input_ids.begin(); iii != input_ids.end(); ++iii) {
+            int id = *iii;
+            
+            if (id == -1) {
+                continue;
+            }
+            
+            if (it->guide || (it->capacity.find(id) != it->capacity.end() && it->capacity.at(id) >= 10)) {
+            
+                transcripts[id].transcripts.push_back(lazy<transcript>());
+
+                transcripts[id].transcripts.back()->found_edge =  exon_edge(meta->size);
+                transcripts[id].transcripts.back()->found_edge.set(it->meta, true);
+                for (std::map<int, float>::const_iterator ci = it->capacity.begin(); ci != it->capacity.end(); ++ci) {
+		    //capacity_type cap = ci->second;
+                    transcripts[id].transcripts.back()->series[ci->first].flow = ci->second;
+                    transcripts[id].transcripts.back()->series[ci->first].mean = ci->second;
+                    transcripts[id].transcripts.back()->series[ci->first].score = ci->second;
+                }
+                transcripts[id].transcripts.back()->guided = it->guide;
+                
+                if (input_ids.size() > 1) { // we have a join!
+                    combined += it->capacity.at(id);
+                }  
+            }
+        }
+        if (combined > 0) {
+            // add to joined transcripts
+            transcripts[-1].transcripts.push_back(lazy<transcript>());
+
+            transcripts[-1].transcripts.back()->found_edge =  exon_edge(meta->size);
+            transcripts[-1].transcripts.back()->found_edge.set(it->meta, true);
+            for (std::map<int, float>::const_iterator ci = it->capacity.begin(); ci != it->capacity.end(); ++ci) {
+                //capacity_type cap = ci->second;
+                transcripts[-1].transcripts.back()->series[ci->first].flow = ci->second;
+                transcripts[-1].transcripts.back()->series[ci->first].mean = ci->second;
+                transcripts[-1].transcripts.back()->series[ci->first].score = ci->second;
+            }
+            transcripts[-1].transcripts.back()->series[-1].flow = combined;
+            transcripts[-1].transcripts.back()->series[-1].mean = combined;
+            transcripts[-1].transcripts.back()->series[-1].score = combined;
+                
+            transcripts[-1].transcripts.back()->guided = it->guide;
+        }
     }
 }
-
-void base_manager::print_transcripts(std::ostream &os) {
-    transcripts.print(os);
-}
-

@@ -45,7 +45,7 @@ void bam_guided_reader::read_chromosome(std::string file_name, std::string chrom
                 logger::Instance()->debug("Exon " + std::to_string((*f_it)->start) + " - "+ std::to_string((*f_it)->end) +" \n");
              }
 //            for(greader_refsorted_list<raw_atom* >::iterator r_it = c_it->atoms->begin(); r_it != c_it->atoms->end(); ++r_it) {
-//                logger::Instance()->debug("Atom " + std::to_string( (*r_it)->count) + "\n");
+//                logger::Instance()->debug("Atom \n");
 //                for(greader_refsorted_list<exon*>::iterator f_it = (*r_it)->exons->begin(); f_it != (*r_it)->exons->end(); ++f_it) {
 //                    logger::Instance()->debug("Exon " + std::to_string((*f_it)->start) + " - "+ std::to_string((*f_it)->end) +" \n");
 //                }
@@ -64,7 +64,7 @@ void bam_guided_reader::read_chromosome(std::string file_name, std::string chrom
                     logger::Instance()->debug("FExon " + std::to_string((*f_it)->start) + " - "+ std::to_string((*f_it)->end) +" \n");
                  }
                 for(greader_refsorted_list<raw_atom* >::iterator r_it = c_it->atoms->begin(); r_it != c_it->atoms->end(); ++r_it) {
-                    logger::Instance()->debug("Atom " + std::to_string( (*r_it)->count) + "\n");
+                    logger::Instance()->debug("Atom \n");
                     for(greader_refsorted_list<exon*>::iterator f_it = (*r_it)->exons->begin(); f_it != (*r_it)->exons->end(); ++f_it) {
                         logger::Instance()->debug("Exon " + std::to_string((*f_it)->start) + " - "+ std::to_string((*f_it)->end)  +" \n");
                     }

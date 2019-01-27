@@ -89,8 +89,9 @@ void options::init(int argc, char **argv) {
     ("percent-filter,p", po::value<unsigned int>(), "Minimum capacity to report retrieved transcripts compared to the largest transcript found. (default: 0%)")
     ("mean-filter", po::value<float>(), "Minimum average capacity to report retrieved transcripts. (default: 4.0)")
     ("score-filter", po::value<float>(), "Minimum score to report retrieved transcripts. (default: 3.0)")
-    ("min-single-coverage", po::value<unsigned int>(), "Minimal average coverage off single exon transcripts to report. (default: 10)" )
-    ("min-transcript-length-base", po::value<unsigned int>(), "Minimal length of a transcripts to report in bp. (default: 150)" )
+    ("min-single-coverage", po::value<unsigned int>(), "Minimal average coverage off single exon transcripts to report. (default: 20)" )
+    ("min-single-length", po::value<unsigned int>(), "Minimal length off single exon transcripts to report. (default: 300)" )
+    ("min-transcript-length-base", po::value<unsigned int>(), "Minimal length of a transcripts to report in bp. (default: 200)" )
     ("min-transcript-length-extension", po::value<unsigned int>(), "Additional length in bp required per exon. (default: 50)" )
     ("region-group-filter", po::value<float>(), "Regions where all transcripts are below this coverage are discarded. (default: 5.5)")
     ;
@@ -128,7 +129,7 @@ void options::init(int argc, char **argv) {
         std::cout << graph_filter_o << std::endl;
         std::cout << filter_o << std::endl;
         std::cout << tech_o << std::endl;
-        std::cout << "(Version 1.3)" << std::endl;
+        std::cout << "(Version 1.3m)" << std::endl;
         std::exit(0);
     }
     
@@ -306,6 +307,10 @@ void options::init(int argc, char **argv) {
     
     if (vm.count("min-single-coverage")) {
         min_single_coverage = vm["min-single-coverage"].as<unsigned int>();
+    }
+    
+    if (vm.count("min-single-length")) {
+        min_single_length = vm["min-single-length"].as<unsigned int>();
     }
     
     if (vm.count("min-transcript-length-base")) {

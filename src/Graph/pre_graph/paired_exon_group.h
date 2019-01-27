@@ -9,17 +9,18 @@
 #define	PAIRED_EXON_GROUP_H
 
 #include "../../Datatype_Templates/misc_types.h"
+#include "../../Datatype_Templates/maps.h"
 
 class exon_group;
 
 struct paired_exon_group {
 public:
-    paired_exon_group( exon_group* lr,  exon_group* rr, const rcount c) : left_read(lr), right_read(rr), count(c) {};
+    paired_exon_group( exon_group* lr,  exon_group* rr, gmap<int, rcount> &c) : left_read(lr), right_read(rr), count(c) {};
     virtual ~paired_exon_group() {};
     
     exon_group* left_read;
     exon_group* right_read;
-    rcount count; // how often was this encountered
+    gmap<int, rcount> count; // how often was this encountered
     
 private:
 

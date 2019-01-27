@@ -11,6 +11,7 @@
 #include "paired_exon_group.h"
 #include "../flow_graph/exon_edge.h"
 #include "../../Datatype_Templates/lazy.h"
+#include "exon_group_count.h"
 #include <boost/cstdint.hpp>
 
 using namespace boost; 
@@ -27,26 +28,11 @@ public:
     unsigned int set_exons;
     
     unsigned int range_start, range_end;
-    
-    rcount read_count;
-    rcount frag_count;
-    
-    // all middle exons are fully covered by design
-    rcount base_count_start;
-    rcount base_count_end;
-    
-    lazy<std::map< rpos,rcount > > lefts;
-    rcount total_lefts;
-    lazy<std::map< rpos,rcount > > rights;
-    rcount total_rights;
-    
-    std::vector<std::map< rpos,rcount > > hole_starts;
-    std::vector<rcount > hole_start_counts;
-    std::vector<std::map< rpos,rcount > > hole_ends;
-    std::vector<rcount > hole_end_counts;
+        
+    gmap<int, exon_group_count> count_series;
     
     bool length_filterd;
-    bool filtered;
+    bool has_coverage;
     bool extended;
     bool source_evidence;
     bool drain_evidence;

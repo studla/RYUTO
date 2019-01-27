@@ -11,14 +11,9 @@
 #include "Datatype_Templates/move.h"
 
 exon_group::exon_group(const unsigned int size, const unsigned int se) 
-    : size(size), set_exons(se), read_count(0), frag_count(0), base_count_start(0), base_count_end(0),
-      length_filterd(false), filtered(false), extended(false), source_evidence(false), drain_evidence(false), reference_atom(false), backlink_fragment(false), bin_mask(size) {
-    
-    hole_starts.assign(se, std::map< rpos,rcount >());
-    hole_ends.assign(se, std::map< rpos,rcount >());
-    hole_start_counts.assign(se,0);
-    hole_end_counts.assign(se,0);
-    
+    : size(size), set_exons(se),
+      length_filterd(false), has_coverage(false), extended(false), source_evidence(false), drain_evidence(false), reference_atom(false), backlink_fragment(false), bin_mask(size) {
+     
 }
 
 exon_group::~exon_group() {
@@ -45,19 +40,7 @@ void exon_group::set(const unsigned int pos, const bool val) {
 
 void exon_group::reset_maps() {
     
-    hole_starts.clear();
-    hole_starts.assign(set_exons, std::map< rpos,rcount >());
-    hole_ends.clear();
-    hole_ends.assign(set_exons, std::map< rpos,rcount >());
-    hole_start_counts.clear();
-    hole_start_counts.assign(set_exons,0);
-    hole_end_counts.clear();
-    hole_end_counts.assign(set_exons,0);
-
-    lefts = lazy<std::map< rpos,rcount > >();
-    total_lefts = 0;
-    rights = lazy<std::map< rpos,rcount > >();
-    total_rights = 0;
+    count_series.clear();
     
 }
 

@@ -573,7 +573,8 @@ Reader/gffReader.o: Reader/gffReader.cc /usr/include/stdc-predef.h \
  /usr/include/c++/7/complex /usr/include/c++/7/sstream \
  /usr/include/c++/7/bits/sstream.tcc Reader/Chromosome/read_collection.h \
  Reader/Chromosome/../../Options/options.h \
- Reader/Chromosome/../../Logger/logger.h Reader/Chromosome/interval.h \
+ Reader/Chromosome/../../Logger/logger.h \
+ Reader/Chromosome/raw_series_counts.h Reader/Chromosome/interval.h \
  /homes/biertruck/thomas/Libraries//include/boost/algorithm/string.hpp \
  /homes/biertruck/thomas/Libraries//include/boost/algorithm/string/std_containers_traits.hpp \
  /homes/biertruck/thomas/Libraries//include/boost/algorithm/string/std/string_traits.hpp \
@@ -2142,6 +2143,8 @@ Reader/Chromosome/read_collection.h:
 Reader/Chromosome/../../Options/options.h:
 
 Reader/Chromosome/../../Logger/logger.h:
+
+Reader/Chromosome/raw_series_counts.h:
 
 Reader/Chromosome/interval.h:
 
