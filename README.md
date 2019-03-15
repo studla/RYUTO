@@ -9,7 +9,7 @@ to see options.
 
 # Testdata
 
-You may download the alignments of real data used for publication [here](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments2.tar.gz).
+You may download the alignments of real data used for publication [here](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments2.tar.gz) (Size: 82GB).
 
 # Pre-Compiled
 Operation System | Version | Binary
