@@ -130,6 +130,7 @@ mkdir build
 cd build
 cmake -DLEMON_DEFAULT_LP=CLP -DCOIN_ROOT_DIR=/path/to/your/Clp ..
 make
+make install
 ```
 
 If installed to a non-standard path, add with --with-lemon=/path/to/your/lemon to the Ryuto ./configure call.
