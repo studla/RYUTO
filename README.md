@@ -18,7 +18,7 @@ Ubuntu           | 26      | [binary](https://github.com/studla/RYUTO/releases/d
 Ubuntu           | 28      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Ubuntu-28/ryuto)
 Fedora           | 27      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Fedora-27/ryuto)
 Fedora           | 28      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Fedora-28/ryuto)
-Generic Linux    | -       | [binary](https://github.com/studla/RYUTO/releases/download/5ed53ba/ryuto)
+Generic Linux    | -       | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Generic/ryuto)
 
 Fedora users may have to install g++ in order for the pre-compiled binaries to work.
 ```
