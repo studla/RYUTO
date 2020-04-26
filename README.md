@@ -14,18 +14,15 @@ You may download the alignments of real data used for publication [here](http://
 # Pre-Compiled
 Operation System | Version | Binary
  ---------------- | ------- | ------
-Ubuntu           | 26      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Ubuntu-26/ryuto)
-Ubuntu           | 28      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Ubuntu-28/ryuto)
-Fedora           | 27      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Fedora-27/ryuto)
-Fedora           | 28      | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Fedora-28/ryuto)
-Generic Linux    | -       | [binary](https://github.com/studla/RYUTO/releases/download/1.3m-Generic/ryuto)
+Generic Linux, dynamic linked    | -       | [binary](https://github.com/studla/RYUTO/releases/download/1.4m_a/ryuto)
 
-Fedora users may have to install g++ in order for the pre-compiled binaries to work.
+All users have to install g++ in order for the pre-compiled binaries to work.
+e.g, for Fedora use:
 ```
 sudo dnf install gcc-c++
 ```
 
-The generic version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting C11.
+ <!---The generic version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting C11.--->
 
 # Installation
 Download the newest source code from: https://github.com/studla/RYUTO
