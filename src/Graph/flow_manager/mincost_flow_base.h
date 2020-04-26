@@ -39,35 +39,35 @@ protected:
     // interfaces and functions used for flow computations
     
     virtual void create_initial_offset_graph(
-            ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow,
+            ListDigraph::NodeMap<signed_long_capacity_type> &ex_flow,
             ListDigraph::NodeMap<ListDigraph::Node > &node_ref,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_forward,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_backward,
             capacity_type &max_supply,
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
-            ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
+            ListDigraph::ArcMap<signed_long_capacity_type> &cost,
+            ListDigraph::NodeMap<signed_long_capacity_type> &supply,
             int id);
     
-    virtual capacity_type find_exogenous_flow(ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow, int id);
+    virtual capacity_type find_exogenous_flow(ListDigraph::NodeMap<signed_long_capacity_type> &ex_flow, int id);
     
     virtual void add_offset_edge(capacity_type capacity, capacity_type orig_cap, int exon_count,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference);
     
     virtual void add_offset_helper(capacity_type capacity,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference);
     
     virtual void push_mincost_flow(
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
-            ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap);
+            ListDigraph::ArcMap<signed_long_capacity_type> &cost,
+            ListDigraph::NodeMap<signed_long_capacity_type> &supply,
+            ListDigraph::ArcMap<signed_long_capacity_type> &flowmap);
     
     virtual bool modify_repeat(
             ListDigraph::NodeMap<ListDigraph::Node > &node_ref,
@@ -76,15 +76,15 @@ protected:
             capacity_type &max_supply,
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
-            ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap); 
+            ListDigraph::ArcMap<signed_long_capacity_type> &cost,
+            ListDigraph::NodeMap<signed_long_capacity_type> &supply,
+            ListDigraph::ArcMap<signed_long_capacity_type> &flowmap); 
     
     virtual void transform_flow_to_orig(ListDigraph::NodeMap<ListDigraph::Node > &node_ref,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_forward,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_backward,
             ListDigraph &og,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap, int id);
+            ListDigraph::ArcMap<signed_long_capacity_type> &flowmap, int id);
     
     virtual void init_variables(capacity_type max_supply);
     

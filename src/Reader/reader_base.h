@@ -29,7 +29,7 @@ public:
     
     virtual void return_chromosome_names(const std::string &file, greader_name_set<std::string> &return_list) = 0;
     
-    virtual void read_chromosome(std::string file, std::string chromosome, const unsigned int input_prefix, bool last_file) = 0;
+    virtual void read_chromosome(std::vector<std::string > file_names, std::string chromosome) = 0;
     
     
     virtual void finalize(const std::string &chromosome) = 0;

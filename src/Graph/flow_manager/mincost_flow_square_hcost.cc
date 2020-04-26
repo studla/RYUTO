@@ -17,7 +17,7 @@ mincost_flow_square_hcost::~mincost_flow_square_hcost() {
 
 void mincost_flow_square_hcost::add_offset_edge(capacity_type capacity, capacity_type orig_cap, int exon_count,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference) {
     
     if (orig_cap == 0) return;
@@ -59,7 +59,7 @@ void mincost_flow_square_hcost::add_offset_edge(capacity_type capacity, capacity
 
 void mincost_flow_square_hcost::add_offset_helper(capacity_type capacity,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference) {
     
     capacity_type i = step_interval;

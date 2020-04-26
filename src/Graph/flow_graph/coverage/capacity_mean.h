@@ -30,6 +30,7 @@ public:
         rpos weight;
         
         void sum_up(capacity_mean& rhs, unsigned int index);
+        void assign_mean(float mean);
 
 private:
 

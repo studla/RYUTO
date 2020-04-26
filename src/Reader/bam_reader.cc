@@ -26,6 +26,9 @@
 #include "Chromosome/read_collection.h"
 #include "Chromosome/raw_series_counts.h"
 
+//#include <chrono> 
+//using namespace std::chrono; 
+
 bam_reader::bam_reader() {
 }
 
@@ -326,6 +329,7 @@ void bam_reader::populate_next_single(const std::string &chrom_name, connected *
                guide_ends.insert(lr->range_end);
            }
            lr->reference_name = (*atom)->reference_name;
+           lr->reference_gene = (*atom)->reference_gene;
        }
        
        for(gmap<int, raw_series_counts>::iterator rsci = (*atom)->raw_series.begin(); rsci != (*atom)->raw_series.end(); ++rsci) {
@@ -360,15 +364,15 @@ void bam_reader::populate_next_single(const std::string &chrom_name, connected *
                 } 
             }
        }
-       
+              
        paired_map<raw_atom* , gmap<int, rcount> >::iterator it = (*atom)->paired.begin();
        while(it != (*atom)->paired.end() && !it->first->has_coverage && !it->first->reference_atom) {
             ++it;
         }
        if (it != (*atom)->paired.end() ) {
                       
-           graph_list<paired_exon_group>::iterator start;
-           
+            graph_list<paired_exon_group>::iterator start;
+
             exon_group* rr = &raw->singled_bin_list[it->first->id]; 
 
             #ifdef ALLOW_DEBUG
@@ -477,13 +481,11 @@ void bam_reader::return_chromosome_names(const std::string &file_name, greader_n
 }
 
 
-void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, const unsigned int input_prefix, bool last_file) {
+void bam_reader::read_chromosome(std::vector<std::string> file_names, std::string chrom_name) {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Read chromosome " + file_name + " - "+ chrom_name+" is last: " + std::to_string(last_file) +".\n");
+    logger::Instance()->debug("Read chromosome " + chrom_name+".\n");
     #endif
-    
-    std::string id_prefix = std::to_string(input_prefix);
     
     // get or create the chromosome by name
     // we only use fwd if unstranded
@@ -496,21 +498,40 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
             chrom_rev = &chromosome_map_rev[chrom_name];
         }        
     }
+
+    struct bam_file_ {
+        htsFile* file;
+        hts_idx_t* idx;
+        bam_hdr_t *hdr;
+        hts_itr_t *iter;  
+        bam1_t *read;
+        int status;
+        unsigned int index;
+    };
+    std::vector<bam_file_> fileh(file_names.size());
     
-    // open reader
-    htsFile* file = hts_open(file_name.c_str(), "r");
-    // we need an index, because otherwise we need to read the whole file multiple times
-    // we can use the same name, it will add the bai automatically
-    hts_idx_t* idx = sam_index_load(file, file_name.c_str());
-    
-    // we also need to the header for indexes
-    bam_hdr_t *hdr = sam_hdr_read(file);
-    hts_itr_t *iter = NULL;
-    
-    // iterator and object to read stuff into
-    iter = sam_itr_querys(idx, hdr, chrom_name.c_str()); 
-    bam1_t *read = bam_init1();
-    
+    {
+    unsigned int i = 0;
+    for(std::vector<std::string>::iterator it = file_names.begin(); it != file_names.end() ; it++, i++) {
+        // open reader
+        fileh[i].file = hts_open(it->c_str(), "r");
+        // we need an index, because otherwise we need to read the whole file multiple times
+        // we can use the same name, it will add the bai automatically
+        fileh[i].idx = sam_index_load(fileh[i].file, it->c_str());
+
+        // we also need to the header for indexes
+        fileh[i].hdr = sam_hdr_read(fileh[i].file);
+        fileh[i].iter = NULL;
+
+        // iterator and object to read stuff into
+        fileh[i].iter = sam_itr_querys(fileh[i].idx, fileh[i].hdr, chrom_name.c_str());  
+        
+        fileh[i].read = bam_init1();
+        fileh[i].status = sam_itr_next(fileh[i].file, fileh[i].iter, fileh[i].read);
+        fileh[i].index = i;
+    }
+    }
+
     // we need to move through the list of already there exons
     r_border_set<rpos>::iterator ex_start_fwd_it = chrom_fwd->fixed_exon_starts.ref().begin();
     r_border_set<rpos>::iterator ex_end_fwd_it = chrom_fwd->fixed_exon_ends.ref().begin();
@@ -527,20 +548,46 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
     rpos right_border_rev = 0;
     
     // main loop of this, we always read ALL reads, but compacting is called multiple times
-    while ( sam_itr_next(file, iter, read) >= 0) {
-	
+    std::vector<bam_file_>::iterator next = fileh.end();
+    while ( true ) {
+        
+        if ( next != fileh.end() ) next->status = sam_itr_next(next->file, next->iter, next->read);
+        
+        next = fileh.end();
+        for(std::vector<bam_file_>::iterator it = fileh.begin(); it != fileh.end(); it++) {
+            if ( it->status >= 0) {
+                if ( next == fileh.end() || next->read->core.pos > it->read->core.pos ) {
+                    next = it;
+                }
+            }
+        }
+        
+        if ( next == fileh.end() ) {
+            break;
+        }
+              
+        bam1_t *read = next->read;
+        unsigned int index = next->index;
+        
+        std::string id_prefix = std::to_string(index);
+
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Next Sam Iter " + std::string(bam_get_qname(read)) + "\n");
         #endif
-        
+        // 
         if (read->core.flag & BAM_FSECONDARY || read->core.flag & BAM_FUNMAP || read->core.qual < 1) { // this is a secondary alignment
             // only use primary alignments
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Skip by Flags " + std::to_string(read->core.flag & BAM_FSECONDARY) + " - " + std::to_string(read->core.flag & BAM_FUNMAP) + " - " + std::to_string(read->core.qual) + "\n");
+            #endif
+            
             continue;
         }
         
         uint32_t* cigar = bam_get_cigar(read);
         bool long_intron = false;
         bool too_small = false;
+        bool has_intron = false;
         for(int i = 0; i < read->core.n_cigar; i++) {
             const int op = bam_cigar_op(cigar[i]);
             const int ol = bam_cigar_oplen(cigar[i]);
@@ -550,17 +597,25 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
                 long_intron = true;
                 break;
             }
+            if (op == BAM_CREF_SKIP) {
+                has_intron = true;
+            }
             if (op == BAM_CMATCH && i != 0 && i != read->core.n_cigar - 1 && ol < 3) {
                 too_small = true;
                 break;
             }
         }
         if(long_intron || too_small) {
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Skip Inconsistend " + std::to_string(long_intron) + " - " + std::to_string(too_small) + "\n");
+            #endif
+            //next->status = sam_itr_next(next->file, next->iter, next->read);
             continue;
         }
         
         // process stranded or unstranded
-         if (options::Instance()->is_stranded()) {
+        if (options::Instance()->is_stranded()) {
              // we need to get strand information, use XS tag from mappers
               
             char xs = '.'; 
@@ -576,13 +631,34 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
                     }         
             } 
             
-            if (options::Instance()->get_strand_type() == options::unknown && xs == '.') {
-                 // for unknown we test the XS tag
-                    logger::Instance()->warning("No strand information on read ");
-                    logger::Instance()->warning(bam_get_qname(read));
-                    logger::Instance()->warning(". Add XS tag, specify library or turn of stranded option. Read was Skipped. \n");
-                    continue;
-
+            if (options::Instance()->get_strand_type() == options::unknown ) {
+                
+                if ( xs == '.') {
+                    if (has_intron) {
+                        logger::Instance()->warning("No strand information on spliced read ");
+                        logger::Instance()->warning(bam_get_qname(read));
+                        logger::Instance()->warning(". Add XS tag, specify library or turn off stranded option. Read was Skipped. \n");
+                        continue;
+                    }
+                    
+                    // try to resurrect it
+                    rpos left = read->core.pos + 1;
+                    if ( left <= right_border_fwd && left > left_border_rev ) {
+                        xs = '+';
+                    } else if ( left > right_border_fwd && left <= left_border_rev ) {
+                        xs = '-';
+                    }
+                }
+                
+                if (xs == '+') {
+                    process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
+                } else if (xs == '-'){
+                    process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], file_names.size());
+                } else {
+                    process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
+                    process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], file_names.size());
+                }
+                
             } else { 
                 char strand = '.'; 
                 uint32_t sam_flag = read->core.flag;
@@ -623,46 +699,100 @@ void bam_reader::read_chromosome(std::string file_name, std::string chrom_name, 
                 
                 if (strand == '+') {
                     if (xs != '-')
-                        process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, input_prefix, last_file);
+                        process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 } else if (strand == '-'){
                     if (xs != '+')
-                        process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, input_prefix, last_file);
+                        process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 }
             }
             
-         } else {
-                process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, input_prefix, last_file);
-         }
+        } else {
+                process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
+        }
+        
     }
     
     if (options::Instance()->is_stranded()) {
-        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, input_prefix, last_file);
-        finish_block(chrom_rev, left_border_rev, right_border_rev, ex_start_rev_it, ex_end_rev_it, input_prefix, last_file);
+        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, file_names.size());
+        finish_block(chrom_rev, left_border_rev, right_border_rev, ex_start_rev_it, ex_end_rev_it, file_names.size());
     } else {
-        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, input_prefix, last_file);
+        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, file_names.size());
     }
     
-    if (last_file || options::Instance()->is_parse_heuristic()) {
-         if (options::Instance()->is_stranded()) {
-            reset_reads(chrom_fwd);
-            reset_reads(chrom_rev);
-         } else {
-            reset_reads(chrom_fwd); 
-         }
+
+    if (options::Instance()->is_stranded()) {
+        reset_reads(chrom_fwd);
+        reset_reads(chrom_rev);
+    } else {
+        reset_reads(chrom_fwd); 
     }
-    
+
+ 
     // destroy everything again
-    hts_idx_destroy(idx);
-    hts_itr_destroy(iter);
-    bam_destroy1(read);
-    bam_hdr_destroy(hdr);
-    hts_close(file);
+    for(std::vector<bam_file_>::iterator it = fileh.begin(); it != fileh.end(); it++) {
+        hts_idx_destroy(it->idx);
+        hts_itr_destroy(it->iter);
+        bam_hdr_destroy(it->hdr);
+        hts_close(it->file);
+        bam_destroy1(it->read);
+    }
     
+    
+    
+//     logger::Instance()->error("Chr "+chrom_name+"\n");
+//    
+//    logger::Instance()->info("atoms " + std::to_string(chrom_fwd->atoms.size()) + "\n");
+//    for (greader_list<raw_atom>::iterator it = chrom_fwd->atoms.begin(); it !=  chrom_fwd->atoms.end(); ++it) {
+//        logger::Instance()->info("RAF " + std::to_string( (long) &*it ) +  " " + it->to_string() + "\n");
+//    }
+//    
+//    logger::Instance()->info("atoms " + std::to_string(chrom_rev->atoms.size()) + "\n");
+//    for (greader_list<raw_atom>::iterator it = chrom_rev->atoms.begin(); it !=  chrom_rev->atoms.end(); ++it) {
+//        logger::Instance()->info("RAR " + std::to_string( (long) &*it ) +  " " + it->to_string() + "\n");
+//    }
+    
+//    logger::Instance()->error("Chr Fwd "+chrom_name+"\n");
+//    logger::Instance()->error("fossil_exons " + std::to_string(chrom_fwd->fossil_exons.size()) + "\n");
+//    logger::Instance()->error("fixed_exon_starts " + std::to_string(chrom_fwd->fixed_exon_starts->size()) + "\n");
+//    logger::Instance()->error("fixed_exon_ends " + std::to_string(chrom_fwd->fixed_exon_ends->size()) + "\n");
+//    
+//    logger::Instance()->error("chrom_fragments " + std::to_string(chrom_fwd->chrom_fragments.size()) + "\n");
+//    logger::Instance()->error("atoms " + std::to_string(chrom_fwd->atoms.size()) + "\n");
+//    
+//    logger::Instance()->error("reads " + std::to_string(chrom_fwd->reads.size()) + "\n");
+//    long sum_reads = 0;
+//    for (double_deque<read_collection>::iterator it = chrom_fwd->reads.begin(); it != chrom_fwd->reads.end(); ++it ) {
+//        sum_reads += (*it)->size();
+//    }
+//    logger::Instance()->error("reads containing " + std::to_string(sum_reads) + "\n");
+//    
+//    logger::Instance()->error("tmps " + std::to_string(chrom_fwd->read_queue.size()) +" "+ std::to_string(chrom_fwd->interval_queue.size())+" "+ std::to_string(chrom_fwd->splice_queue.size())+ "\n");
+//    
+//    logger::Instance()->error("Chr Rev "+chrom_name+"\n");
+//    logger::Instance()->error("fossil_exons " + std::to_string(chrom_rev->fossil_exons.size()) + "\n");
+//    logger::Instance()->error("fixed_exon_starts " + std::to_string(chrom_rev->fixed_exon_starts->size()) + "\n");
+//    
+//    logger::Instance()->error("fixed_exon_ends " + std::to_string(chrom_rev->fixed_exon_ends->size()) + "\n");
+//    
+//    logger::Instance()->error("chrom_fragments " + std::to_string(chrom_rev->chrom_fragments.size()) + "\n");
+//    logger::Instance()->error("atoms " + std::to_string(chrom_rev->atoms.size()) + "\n");
+//    
+//    logger::Instance()->error("reads " + std::to_string(chrom_rev->reads.size()) + "\n");
+//    sum_reads = 0;
+//    for (double_deque<read_collection>::iterator it = chrom_rev->reads.begin(); it != chrom_rev->reads.end(); ++it ) {
+//        sum_reads += (*it)->size();
+//    }
+//    logger::Instance()->error("reads containing " + std::to_string(sum_reads) + "\n");
+//    
+//    logger::Instance()->error("tmps " + std::to_string(chrom_rev->read_queue.size()) +" "+ std::to_string(chrom_rev->interval_queue.size())+" "+ std::to_string(chrom_rev->splice_queue.size())+ "\n");
 }
 
 void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_border, chromosome* chrom, const std::string id_prefix,
-        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, const unsigned int input_prefix, bool last_file) {
+        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, int index, unsigned int total_inputs) {
     
+
+    //    logger::Instance()->error("Process: ID " + std::to_string(index) + "\n");
+
     rpos left, right;
     greader_list<interval> junctions;
     greader_list<std::pair<rpos, rpos> > splices;
@@ -670,11 +800,12 @@ void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_bor
     if (!chrom->read_queue.empty()) {
         prev = &*chrom->read_queue.rbegin();
     }
-    rread* new_read = parse_read(bread, chrom, junctions, splices, left, right, id_prefix, ex_start_it, ex_end_it);
+    rread* new_read = parse_read(bread, chrom, junctions, splices, left, right, id_prefix, ex_start_it, ex_end_it, index);
+    new_read->add_count(index);
 
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Add read ");
-    if (new_read->id_set && ! bread->core.flag & BAM_FSECONDARY) logger::Instance()->debug(new_read->ids.ref().front());
+    if (new_read->id_set && ! (bread->core.flag & BAM_FSECONDARY)) logger::Instance()->debug(new_read->ids.ref()[index].front());
     logger::Instance()->debug( " " + std::to_string(left) + " " + std::to_string(right) + " BORDER " + std::to_string(right_border) + ".\n");
     #endif
 
@@ -692,14 +823,15 @@ void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_bor
         }
         
         if( merge ) {
-            
             for (greader_list<std::pair<rpos, rpos> >::iterator is = splices.begin(); is != splices.end(); ++is) {
-                chrom->splice_queue[*is] += 1;
+                chrom->splice_queue[*is][index].first += 1;
+                chrom->splice_queue[*is][index].second = chrom->splice_queue[*is][index].second || new_read->primary;
             }
             
-            ++prev->count;
+            prev->add_count(index);
+            prev->primary = prev->primary || new_read->primary;
             if (new_read->id_set) {
-                prev->add_id(new_read->ids.ref().front());
+                prev->add_id( new_read->ids.ref()[index].front(), index);
             }
             chrom->read_queue.pop_back();
             return;
@@ -726,7 +858,7 @@ void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_bor
         // not overlapping on chromosome, so we need to finish up so far collected data
         rread last = *new_read;
         chrom->read_queue.pop_back();
-        finish_block(chrom, left_border, right_border, ex_start_it, ex_end_it, input_prefix, last_file);
+        finish_block(chrom, left_border, right_border, ex_start_it, ex_end_it, total_inputs);
         
         rread* re_add = chrom->addQueuedRead(last);
         for (greader_list<interval>::iterator it = junctions.begin(); it != junctions.end(); ++it) {
@@ -742,7 +874,9 @@ void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_bor
     }
      
     for (greader_list<std::pair<rpos, rpos> >::iterator is = splices.begin(); is != splices.end(); ++is) {
-        chrom->splice_queue[*is] += 1;
+        chrom->splice_queue[*is][index].first += 1;
+        chrom->splice_queue[*is][index].second = chrom->splice_queue[*is][index].second || new_read->primary;
+        logger::Instance()->debug("Add Splice "+ std::to_string(is->first) + " - " + std::to_string(is->second) +"\n");
     }
     std::copy(junctions.begin(), junctions.end(), std::back_inserter(chrom->interval_queue));
 }
@@ -750,19 +884,20 @@ void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_bor
 rread* bam_reader::parse_read( bam1_t *bread,  chromosome* chrom, greader_list<interval> &junctions,
         greader_list<std::pair<rpos, rpos> > &splices,
         rpos &left, rpos &right, const std::string id_prefix,
-        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it) {
+        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it,
+        int index) {
     
     rread* new_read;
     
     ++chrom->read_count;
     // && bread->core.flag & BAM_FPROPER_PAIR Why only proper pair??
-    if ( bread->core.flag & BAM_FPAIRED &&  bread->core.tid == bread->core.mtid) { // this is a proper paired read on same ref
+    if ( bread->core.flag & BAM_FPAIRED &&  bread->core.tid == bread->core.mtid && !(bread->core.flag & BAM_FSECONDARY)) { // this is a proper paired read on same ref
         // add this read to the chromosome
         std::string id(bam_get_qname(bread));
         id.append("_").append(id_prefix);
 
         // new read object and add it to chromosome (we cannot have any name twice)
-        new_read = chrom->addQueuedRead(rread(id));
+        new_read = chrom->addQueuedRead(rread(id, index));
         
         if (bread->core.mpos > bread->core.pos) { // count only left pair!
             ++chrom->frag_count;
@@ -772,6 +907,8 @@ rread* bam_reader::parse_read( bam1_t *bread,  chromosome* chrom, greader_list<i
         ++chrom->frag_count;
     }
     
+    new_read->primary = !(bread->core.flag & BAM_FSECONDARY);
+
     bam1_core_t *rcore = &bread->core;
     left = rcore->pos + 1; // original is 0 based, we make this 1 based, much nicer
     rpos start = left;
@@ -864,12 +1001,12 @@ rread* bam_reader::parse_read( bam1_t *bread,  chromosome* chrom, greader_list<i
     
     for (std::deque<rpos>::iterator it = new_ends.begin(); it != new_ends.end(); ++it) {
         bool drop = ( it == new_ends.begin() && no_start ) || ( it == new_ends.end()-1 && no_end );
-        add_known_end(chrom, *it, ex_end_it, !drop);
+        add_known_end(chrom, *it, ex_end_it, !drop, index);
     }
     
     for (std::deque<rpos>::iterator it = new_starts.begin(); it != new_starts.end(); ++it) {
         bool drop = ( it == new_starts.begin() && no_start ) || ( it == new_starts.end()-1 && no_end );
-        add_known_start(chrom, *it, ex_start_it, !drop);
+        add_known_start(chrom, *it, ex_start_it, !drop, index);
     }
     
     new_read->set_left_limit(junctions.front().left);
@@ -886,7 +1023,7 @@ rread* bam_reader::parse_read( bam1_t *bread,  chromosome* chrom, greader_list<i
 
 
 void bam_reader::add_known_start( chromosome* chrom, const rpos pos,
-         r_border_set<rpos>::iterator &ex_start_it, bool evidence) {
+         r_border_set<rpos>::iterator &ex_start_it, bool evidence, int index) {
      
     r_border_set<rpos>::iterator lower = chrom->fixed_exon_starts.ref().lower_bound(ex_start_it, chrom->fixed_exon_starts.ref().end(), pos);
     
@@ -906,13 +1043,13 @@ void bam_reader::add_known_start( chromosome* chrom, const rpos pos,
     
     // this were all possible hit
     // we found something entirely new!
-    chrom->known_starts.push_back(std::make_pair(pos, evidence));
+    chrom->known_starts.push_back(chromosome::raw_position(pos, evidence, index));
     
 }
 
 
 void bam_reader::add_known_end( chromosome* chrom, const rpos pos,
-       r_border_set<rpos>::iterator &ex_end_it, bool evidence) {
+       r_border_set<rpos>::iterator &ex_end_it, bool evidence, int index) {
     
     r_border_set<rpos>::iterator lower = chrom->fixed_exon_ends.ref().lower_bound(ex_end_it, chrom->fixed_exon_ends.ref().end(), pos);
     
@@ -932,20 +1069,24 @@ void bam_reader::add_known_end( chromosome* chrom, const rpos pos,
     
     // this were all possible hit
     // we found something entirely new!
-    chrom->known_ends.push_back(std::make_pair(pos, evidence));
+    chrom->known_ends.push_back(chromosome::raw_position(pos, evidence, index));
     
 }
 
 
-void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, const unsigned int input_prefix, bool last_file) {
+void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, unsigned int total_inputs) {
     
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Finish block " + std::to_string(left) + " - " + std::to_string(right) + ".\n");
     #endif
-     
+    
+//    auto t1 = high_resolution_clock::now(); 
+    
     // create overlapping regions from new intervals
     greader_list<std::pair<rpos, rpos> > raw;
     create_raw_exons(chrom, raw, right);
+    
+//    auto t2 = high_resolution_clock::now(); 
     
     // obscure safe condition for very low read count input
     if (raw.empty()) {
@@ -963,6 +1104,8 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
     
     //  we update the know connected areas
     connected* conn = &*insert_fragment(chrom, left, right);
+    
+//    auto t3 = high_resolution_clock::now(); 
     
 //    for (greader_list<connected>::iterator it = chrom->chrom_fragments.begin() ; it != chrom->chrom_fragments.end(); ++it) {
 //        logger::Instance()->debug("After Connected "+ std::to_string(it->start) + " " + std::to_string(it->end) +"\n");
@@ -985,24 +1128,36 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
     // if we have new data, cluster for best support!
     // this filters out unsupported clusters by low coverage
     greader_list<rpos> clustered_starts;
-    greader_list<std::pair<rpos, bool> >::iterator end_starts = cluster(chrom->known_starts, clustered_starts, right);
+    greader_list<chromosome::raw_position >::iterator end_starts = cluster(chrom->known_starts, clustered_starts, right, total_inputs);
     
     
     greader_list<rpos> clustered_ends;
-    greader_list<std::pair<rpos, bool> >::iterator end_ends = cluster(chrom->known_ends, clustered_ends, right);
+    greader_list<chromosome::raw_position >::iterator end_ends = cluster(chrom->known_ends, clustered_ends, right, total_inputs);
     
     // reset known lists for next round
     chrom->known_starts.erase(chrom->known_starts.begin(), end_starts);
     chrom->known_ends.erase(chrom->known_ends.begin(), end_ends);
-     
+    
+    std::map< std::pair<rpos, rpos>, bool > junction_validation;
+    filter_clusters(chrom, clustered_starts, clustered_ends, junction_validation, total_inputs);
+    
+//    auto t4 = high_resolution_clock::now(); 
+    
     // the starts and ends should reflect the the clustered starts and ends!
     solidify_raw_exons_ends(chrom, raw, clustered_starts, clustered_ends);
+    
+//    auto t5 = high_resolution_clock::now(); 
+    
 //    if (!conn->guided && options::Instance()->is_trimming()) trim_exons_1(chrom, raw, clustered_starts, clustered_ends);
     if (!conn->guided && options::Instance()->is_trimming()) trim_exons_2(chrom, raw, clustered_starts, clustered_ends);
+    
+//    auto t6 = high_resolution_clock::now(); 
     
     // combine them with others
     update_existing_exons(conn, chrom, raw, left, right);
      
+//    auto t7 = high_resolution_clock::now(); 
+    
 //    #ifdef ALLOW_DEBUG
 //    for (greader_list<exon* >::iterator e_it = conn->fossil_exons.ref().begin(); e_it != conn->fossil_exons.ref().end(); ++e_it) {
 //         logger::Instance()->debug("FINAL EXON B: " +  std::to_string((*e_it)->start) + "-" + std::to_string((*e_it)->end)+"\n");
@@ -1019,6 +1174,8 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
     // split exons on clustered 
     split_exons(conn, chrom, clustered_starts, left, right, 1);    
     split_exons(conn, chrom, clustered_ends, left, right, 0);
+    
+//    auto t8 = high_resolution_clock::now(); 
     
 //    #ifdef ALLOW_DEBUG
 //    for (greader_list<exon* >::iterator e_it = conn->fossil_exons.ref().begin(); e_it != conn->fossil_exons.ref().end(); ++e_it) {
@@ -1062,6 +1219,7 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
     add_to_fixed_clusters(chrom->fixed_exon_starts, clustered_starts, ex_start_it);
     add_to_fixed_clusters(chrom->fixed_exon_ends, clustered_ends, ex_end_it);
     
+//    auto t9 = high_resolution_clock::now(); 
     
 //    logger::Instance()->debug("Clustered Starts: ");
 //    for (greader_list<rpos>::iterator f = clustered_starts.begin(); f!= clustered_starts.end(); ++f) {
@@ -1088,26 +1246,30 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
     // now assign new reads
     assign_reads(conn, chrom);
     
+//    auto t10 = high_resolution_clock::now(); 
+    
 //    for ( greader_list<rread>::iterator r_it = chrom->read_queue.begin(); r_it != chrom->read_queue.end(); ++r_it) {
-//        logger::Instance()->debug("FREAD1: ");
-//        for (greader_list<std::string>::iterator id = r_it->ids->begin(); id !=  r_it->ids->end(); ++id) {
-//            logger::Instance()->debug(*id + ", ");
-//        }
-//        logger::Instance()->debug("\nExons1: ");
+////        logger::Instance()->debug("FREAD1: ");
+////        for (greader_list<std::string>::iterator id = r_it->ids->begin(); id !=  r_it->ids->end(); ++id) {
+////            logger::Instance()->debug(*id + ", ");
+////        }
+//        logger::Instance()->debug("Exons1: ");
 //        for (greader_refsorted_list<exon*>::iterator e = r_it->atom->exons->begin(); e != r_it->atom->exons->end(); ++e) {
 //             logger::Instance()->debug( std::to_string((*e)->start) + "-" + std::to_string((*e)->end) + ", ");
 //        }
 //        logger::Instance()->debug("\n");
 //    }
      
-    filter_outer_read_junctions(chrom);
+      filter_outer_read_junctions(chrom, junction_validation, total_inputs);
+    
+//    auto t11 = high_resolution_clock::now(); 
     
 //    for ( greader_list<rread>::iterator r_it = chrom->read_queue.begin(); r_it != chrom->read_queue.end(); ++r_it) {
-//        logger::Instance()->debug("FREAD2: ");
-//        for (greader_list<std::string>::iterator id = r_it->ids->begin(); id !=  r_it->ids->end(); ++id) {
-//            logger::Instance()->debug(*id + ", ");
-//        }
-//        logger::Instance()->debug("\nExons2: ");
+////        logger::Instance()->debug("FREAD2: ");
+////        for (greader_list<std::string>::iterator id = r_it->ids->begin(); id !=  r_it->ids->end(); ++id) {
+////            logger::Instance()->debug(*id + ", ");
+////        }
+//        logger::Instance()->debug("Exons2: ");
 //        for (greader_refsorted_list<exon*>::iterator e = r_it->atom->exons->begin(); e != r_it->atom->exons->end(); ++e) {
 //             logger::Instance()->debug( std::to_string((*e)->start) + "-" + std::to_string((*e)->end) + ", ");
 //        }
@@ -1116,6 +1278,8 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
 // 
     // reduce down to minimal amount of atoms
     reduce_atoms(conn, chrom);
+    
+//    auto t12 = high_resolution_clock::now(); 
 //    
 //    for(greader_refsorted_list<raw_atom*>::iterator atom_it = conn->atoms.ref().begin(); atom_it != conn->atoms.ref().end(); ++atom_it) {
 //        logger::Instance()->debug("Preexisting Atom D " + std::to_string((long) *atom_it) + " " + (*atom_it)->to_string() + ".\n");
@@ -1129,16 +1293,36 @@ void bam_reader::finish_block(chromosome* chrom,  rpos &left,  rpos &right, r_bo
     chrom->splice_queue.clear();
        
     mark_or_reduce_paired_atoms(conn, chrom , conn->atoms.ref().begin(), conn->atoms.ref().end());
-        
-    reduce_reads(conn, input_prefix);
     
-    if (!conn->guided && last_file) filter_bins(conn, chrom);
+//    auto t13 = high_resolution_clock::now();     
+    
+    reduce_reads(conn);
+    
+//    auto t14 = high_resolution_clock::now(); 
+//    
+//    auto d1 = duration_cast<microseconds>(t2 - t1); 
+//    auto d2 = duration_cast<microseconds>(t3 - t2); 
+//    auto d3 = duration_cast<microseconds>(t4 - t3); 
+//    auto d4 = duration_cast<microseconds>(t5 - t4); 
+//    auto d5 = duration_cast<microseconds>(t6 - t5); 
+//    auto d6 = duration_cast<microseconds>(t7 - t6); 
+//    auto d7 = duration_cast<microseconds>(t8 - t7); 
+//    auto d8 = duration_cast<microseconds>(t9 - t8); 
+//    auto d9 = duration_cast<microseconds>(t10 - t9); 
+//    auto d10 = duration_cast<microseconds>(t11 - t10); 
+//    auto d11 = duration_cast<microseconds>(t12 - t11); 
+//    auto d12 = duration_cast<microseconds>(t13 - t12); 
+//    auto d13 = duration_cast<microseconds>(t14 - t13); 
+//    
+//    logger::Instance()->info( "Finish Block - Timer: " + std::to_string(d1.count()) + " " + std::to_string(d2.count()) + " " + std::to_string(d3.count()) + " "+ std::to_string(d4.count()) + " "+ std::to_string(d5.count()) + " "+ std::to_string(d6.count()) + " "+ std::to_string(d7.count()) + " "+ std::to_string(d8.count()) + " "+ std::to_string(d9.count()) + " "+ std::to_string(d10.count()) + " "+ std::to_string(d11.count()) + " " + std::to_string(d12.count()) + " " + std::to_string(d13.count()) + "\n");
+//    
+    if (!conn->guided) filter_bins(conn, chrom);
     
 }
 
 // ######### CLUSTERING #########
 
-greader_list<std::pair<rpos, bool> >::iterator bam_reader::cluster( greader_list<std::pair<rpos, bool> > &in,  greader_list<rpos> &out, rpos &right) {
+greader_list<chromosome::raw_position >::iterator bam_reader::cluster( greader_list<chromosome::raw_position > &in,  greader_list<rpos> &out, rpos &right, int total_inputs) {
     
     
      #ifdef ALLOW_DEBUG
@@ -1158,40 +1342,47 @@ greader_list<std::pair<rpos, bool> >::iterator bam_reader::cluster( greader_list
     
     // init basic values
     unsigned int count = 1;
-    greader_list<std::pair<rpos, bool> >::iterator it = in.begin();
-    rpos current = it->first;
-    bool evidence = it->second;
+    greader_list<chromosome::raw_position >::iterator it = in.begin();
+    rpos current = it->position;
+    bool evidence = it->evidence;
+    std::set<int> indices;
+    indices.insert(it->index);
+    
     ++it;
     
     std::vector<std::pair<rpos,unsigned int> > basic_grouping;
      
     // now search for connected blocks
-    for (; it != in.end() && it->first <= right; ++it) {
-        if (it->first == current) { // repeated element
+    for (; it != in.end() && it->position <= right; ++it) {
+        if (it->position == current) { // repeated element
             ++count;
-            evidence = evidence || it->second;
+            evidence = evidence || it->evidence;
+            indices.insert(it->index);
+            
         } else {   // different element
             
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Add cluster candidate group: "+ std::to_string(current) + ", " + std::to_string(count)+".\n");
             #endif
             
-                basic_grouping.push_back(std::make_pair(current, count));
+            basic_grouping.push_back(std::make_pair(current, count));
             
             // do we have combine to real cluster?
-            if (current + extend < it->first ) { // *it > current by sorting
+            if (current + extend < it->position ) { // *it > current by sorting
                 // end of cluster found, process values in temp
                 
-                if (evidence) {
+                if (evidence && ( indices.size() * 100 / total_inputs >= 30  ) ) {
                     DKMeans(basic_grouping, out, extend);  
                 }
                 basic_grouping.clear();
                 evidence = false;
+                indices.clear();
             }
             
-            current = it->first;
+            current = it->position;
             count = 1;
-            evidence = evidence || it->second;
+            evidence = evidence || it->evidence;
+            indices.insert(it->index);
             
         }
     }
@@ -1201,11 +1392,69 @@ greader_list<std::pair<rpos, bool> >::iterator bam_reader::cluster( greader_list
     #endif
     
     basic_grouping.push_back(std::make_pair(current, count));
-    if (evidence) {
+    if (evidence && ( indices.size() * 100 / total_inputs >= 50  ) ) {
         DKMeans(basic_grouping, out, extend);
     }
   
     return it;
+    
+}
+
+void bam_reader::cluster_clean(greader_list<std::pair<rpos, rcount> > &in,  greader_list<rpos> &out) {
+    
+    
+     #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Cluster Group.\n");
+     #endif
+            
+    // nothing to do here
+    if (in.empty()) {
+        return;
+    }
+    
+    // get option
+    const unsigned int extend = options::Instance()->get_max_pos_extend();
+    
+    // init basic values
+    greader_list<std::pair<rpos, rcount> >::iterator it = in.begin();
+    rpos current = it->first;
+    rcount count = it->second;
+    ++it;
+
+    std::vector<std::pair<rpos,unsigned int> > basic_grouping;
+     
+    // now search for connected blocks
+    for (; it != in.end(); ++it) {
+        if (it->first == current) { // repeated element
+            count += it->second;
+        } else {   // different element
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Add cluster candidate group: "+ std::to_string(current) + ", " + std::to_string(count)+".\n");
+            #endif
+            
+            basic_grouping.push_back(std::make_pair(current, count));
+            
+            // do we have combine to real cluster?
+            if (current + extend < it->first ) { // *it > current by sorting
+                // end of cluster found, process values in temp
+                
+                DKMeans(basic_grouping, out, extend);  
+                basic_grouping.clear();
+
+            }
+            
+            current = it->first;
+            count = it->second;            
+        }
+    }
+    
+    #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Add cluster candidate group: "+ std::to_string(current) + ", " + std::to_string(count)+".\n");
+    #endif
+    
+    basic_grouping.push_back(std::make_pair(current, count));
+    DKMeans(basic_grouping, out, extend);
     
 }
 
@@ -1345,6 +1594,8 @@ void bam_reader::DKMeans( std::vector<std::pair<rpos,unsigned int> > &in,  gread
     
     //################ Backwards ################
     
+    greader_list<std::pair<rpos, rcount> > results;
+    
     // find smallest number of clusters k that contains all points
     unsigned int end = 0;
     for (; end < size; ++end ) {
@@ -1374,9 +1625,10 @@ void bam_reader::DKMeans( std::vector<std::pair<rpos,unsigned int> > &in,  gread
             #endif
         } else {
             #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Clustered Position added " + std::to_string(round(mean))+".\n");
+            logger::Instance()->debug("Clustered Position Queue " + std::to_string(round(mean)) +" , " + std::to_string(n)+".\n");
             #endif
-            end_it = out.insert(end_it, round(mean));
+            results.push_front(std::make_pair(round(mean), n)); 
+            //end_it = out.insert(end_it, round(mean));
         }
         
         range_end = range_start - 1;
@@ -1385,6 +1637,9 @@ void bam_reader::DKMeans( std::vector<std::pair<rpos,unsigned int> > &in,  gread
     // clean up
     delete [] costs;
     delete [] back;
+    
+    cluster_clean(results, out);
+    
 }
 
 void bam_reader::add_to_fixed_clusters(lazy<r_border_set<rpos> > &fixed, greader_list<rpos> &new_clust, r_border_set<rpos>::iterator &pos_mark) {
@@ -1445,6 +1700,285 @@ void bam_reader::add_to_fixed_clusters(lazy<r_border_set<rpos> > &fixed, greader
     
 }
 
+void bam_reader::filter_clusters(chromosome* chrom, greader_list<rpos> &starts, greader_list<rpos> &ends, std::map< std::pair<rpos, rpos>, bool > &junction_validation, unsigned int total_inputs) {
+    
+//    logger::Instance()->debug("Filter Clusters.\n");
+
+    if ( ( starts.empty() && chrom->fixed_exon_starts->empty() ) || ( ends.empty() && chrom->fixed_exon_ends->empty()) ) { // nothing to do
+        return;
+    }
+    
+    struct s_elem {
+            
+        s_elem() : total_count(0), sources(0), primary(false) {}
+        
+        s_elem(rcount tc, unsigned int s) :  total_count(tc), sources(s)  
+        {}
+        
+        void add(rcount tc, unsigned int s, bool p) {
+            total_count += tc;
+            if (s > sources) {
+                sources = s;
+            }
+            primary = primary || p;
+        };
+        
+        rcount total_count; 
+        unsigned int sources;
+        bool primary;
+        
+    };   
+    
+    //    position: splices there:   total_count, from x sources     
+    gmap<rpos, std::map< std::pair<rpos, rpos>, s_elem > > s_map;
+    gmap<rpos, std::map< std::pair<rpos, rpos>, s_elem > > e_map;
+    
+    for(std::map< std::pair<rpos, rpos>, std::map< int, std::pair<unsigned int, bool > > >::iterator sci = chrom->splice_queue.begin(); sci != chrom->splice_queue.end(); ++sci) {
+        
+        rpos sf = sci->first.first - 1;
+        rpos st = sci->first.second + 1;
+        
+        rpos s_target, e_target;
+ 
+
+        if(starts.empty() ) {
+            s_target = 0;
+        } else {
+		greader_list<rpos>::iterator lbs = std::lower_bound(starts.begin(), starts.end(), st); // jump end is exon start
+		if(lbs == starts.end()) { // we hit the end, can only be the last one then
+		    --lbs;
+		    s_target = *lbs;
+		} else {
+		    s_target = *lbs;
+		    if (lbs != starts.begin()) {
+			greader_list<rpos>::iterator lbs_p = lbs;
+			--lbs_p;
+		        //logger::Instance()->debug("Switch Test "+ std::to_string(*lbs_p) + " - " + std::to_string(*lbs) + " : " + std::to_string(st) + ".\n");
+			if (st - *lbs_p < *lbs - st) {
+			    s_target = *lbs_p;
+			}
+		    }
+		}
+        } 
+
+        if ( (st >  s_target &&  st - s_target > options::Instance()->get_max_pos_extend()) || (st <  s_target && s_target - st > options::Instance()->get_max_pos_extend()) ) {
+
+             if (!chrom->fixed_exon_starts->empty()) {
+                   // not found look at fixed
+		    greader_list<rpos>::iterator lbsf = std::lower_bound(chrom->fixed_exon_starts->begin(), chrom->fixed_exon_starts->end(), st);
+		    if(lbsf == chrom->fixed_exon_starts->end())  { // we hit the end, can only be the last one then
+		        --lbsf;
+		        s_target = *lbsf;
+		    } else {
+			s_target = *lbsf;
+			if (lbsf != chrom->fixed_exon_starts->begin()) {
+			    greader_list<rpos>::iterator lbs_p = lbsf;
+			    --lbs_p;
+		            
+			    if (st - *lbs_p < *lbsf - st) {
+				s_target = *lbs_p;
+			    }
+			}
+		    }
+            }
+
+            if ( (st >  s_target &&  st - s_target > options::Instance()->get_max_pos_extend()) || (st <  s_target && s_target - st > options::Instance()->get_max_pos_extend()) ) {
+                junction_validation[std::make_pair(sf + 1 , st - 1)] = false;
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Junction False Init Start "+ std::to_string(sf) + " - " + std::to_string(st) + ".\n");
+                #endif
+                continue;
+            }
+        }
+   
+        if(ends.empty() ) {
+            e_target = 0;
+        } else {
+		greader_list<rpos>::iterator lbe = std::lower_bound(ends.begin(), ends.end(), sf); // jump end is exon start      
+		if(lbe == ends.end()) { // we hit the end, can only be the last one then
+		    --lbe;
+		    e_target = *lbe;
+		} else {
+		    e_target = *lbe;
+		    if (lbe != ends.begin()) {
+		        greader_list<rpos>::iterator lbe_p = lbe;
+		        --lbe_p;
+		        //logger::Instance()->debug("Switch Test "+ std::to_string(*lbe_p) + " - " + std::to_string(*lbe) + " : " + std::to_string(sf) + ".\n");
+		        if (sf - *lbe_p < *lbe - sf) {
+		            e_target = *lbe_p;
+		        }
+		    }
+		}
+        }
+        if ( (sf >  e_target &&  sf - e_target > options::Instance()->get_max_pos_extend()) || (sf <  e_target && e_target - sf > options::Instance()->get_max_pos_extend()) ) {
+
+              if (! chrom->fixed_exon_ends->empty() ) {
+			greader_list<rpos>::iterator lbef = std::lower_bound(chrom->fixed_exon_ends->begin(), chrom->fixed_exon_ends->end(), sf); // jump end is exon start      
+			if(lbef == chrom->fixed_exon_ends->end()) { // we hit the end, can only be the last one then
+			    --lbef;
+			    e_target = *lbef;
+			} else {
+			    e_target = *lbef;
+			    if (lbef != chrom->fixed_exon_ends->begin()) {
+				greader_list<rpos>::iterator lbe_p = lbef;
+				--lbe_p;
+				//logger::Instance()->debug("Switch Test "+ std::to_string(*lbe_p) + " - " + std::to_string(*lbef) + " : " + std::to_string(sf) + ".\n");
+				if (sf - *lbe_p < *lbef - sf) {
+				    e_target = *lbe_p;
+				}
+			    }
+			}
+              }
+
+
+              if ( (sf >  e_target &&  sf - e_target > options::Instance()->get_max_pos_extend()) || (sf <  e_target && e_target - sf > options::Instance()->get_max_pos_extend()) ) {
+		    junction_validation[std::make_pair(sf + 1, st - 1)] = false;
+		    #ifdef ALLOW_DEBUG
+		    logger::Instance()->debug("Junction False Init End "+ std::to_string(sf) + " - " + std::to_string(st) + ".\n");
+		    #endif
+		    continue;
+              }
+        }
+        
+        rcount total_count = 0;
+        rcount primary = false;
+        for (std::map< int, std::pair<unsigned int, bool > >::iterator scci = sci->second.begin(); scci != sci->second.end(); scci++) {
+            total_count += scci->second.first;
+            primary = primary || scci->second.second;
+        }
+        
+        unsigned int source_number = sci->second.size();
+        
+        s_map[s_target][ std::make_pair(e_target + 1, s_target - 1) ].add(total_count, source_number, primary);
+        e_map[e_target][ std::make_pair(e_target + 1, s_target - 1) ].add(total_count, source_number, primary);
+        
+        junction_validation[std::make_pair(e_target + 1, s_target - 1)] = true;
+        
+        #ifdef ALLOW_DEBUG
+           logger::Instance()->debug("Junction Init "+ std::to_string(e_target + 1) + " - " + std::to_string(s_target - 1) +" from " + std::to_string(sf) + " - " + std::to_string(st) + ".\n");
+        #endif
+        
+    }
+  
+    const int max_del_count = 3;
+    const int evidence_min = 10;
+    const int evidence_factor = 8;
+    
+    for (gmap<rpos, std::map< std::pair<rpos, rpos>, s_elem >  >::iterator mi = s_map.begin(); mi !=  s_map.end(); ++mi) {
+        rcount max_count = 0;
+        rcount sum = 0;
+        bool primary = false;
+        for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = mi->second.begin(); si != mi->second.end(); ++si) {
+            
+            s_elem& se = si->second;
+            
+            if (se.total_count > max_count) {
+                max_count = se.total_count;
+            }
+            sum += se.total_count;
+            primary = primary || se.primary;
+        }
+        logger::Instance()->debug("Junction Start ------------ at " + std::to_string(mi->first) + "\n");
+        for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = mi->second.begin(); si != mi->second.end(); ++si) {
+            
+            std::pair<rpos, rpos> pos = si->first;
+            s_elem& se = si->second;
+            
+            if ( ( total_inputs > 1 && (se.sources < 2 || se.sources * 100 / total_inputs < 30) ) 
+             || (se.total_count <= max_del_count && max_count > evidence_min && max_count > se.total_count * evidence_factor) 
+             ||  sum < options::Instance()->get_min_junction_coverage() 
+             || !primary ){
+                junction_validation[std::make_pair(pos.first , pos.second)] = false;
+                
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Invalid Junction Start "+ std::to_string(pos.first) + " - " + std::to_string(pos.second) + " because " + "T" + std::to_string(total_inputs) + ":"  + std::to_string(se.sources) + " S" + std::to_string(sum) + " M" + std::to_string(max_del_count) + ":" + std::to_string(se.total_count) + ".\n");
+                #endif
+                
+            } else {
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Valid Junction Start "+ std::to_string(pos.first) + " - " + std::to_string(pos.second) + " because " + "T" + std::to_string(total_inputs) + ":"  + std::to_string(se.sources) + " S" + std::to_string(sum) + " M" + std::to_string(max_del_count) + ":" + std::to_string(se.total_count) + ".\n");
+                #endif
+            }
+        }  
+    }
+    
+    for (gmap<rpos, std::map< std::pair<rpos, rpos>, s_elem > >::iterator mi = e_map.begin(); mi !=  e_map.end(); ++mi) {
+        rcount max_count = 0;
+        rcount sum = 0;
+        bool primary = true;
+        for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = mi->second.begin(); si != mi->second.end(); ++si) {
+            
+            s_elem& se = si->second;
+            
+            if (se.total_count > max_count) {
+                max_count = se.total_count;
+            }
+            sum += se.total_count;
+            primary = primary || se.primary;
+        }
+        logger::Instance()->debug("Junction End ------------ at " + std::to_string(mi->first) + "\n");
+        for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = mi->second.begin(); si != mi->second.end(); ++si) {
+            
+            std::pair<rpos, rpos> pos = si->first;
+            s_elem& se = si->second;
+            
+            if ( ( total_inputs > 1 && (se.sources < 2 || se.sources * 100 / total_inputs < 30) ) 
+             || (se.total_count <= max_del_count && max_count > evidence_min && max_count > se.total_count * evidence_factor) 
+             ||  sum < options::Instance()->get_min_junction_coverage() 
+             || !primary ){
+
+                junction_validation[std::make_pair(pos.first , pos.second)] = false;
+                
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Invalid Junction End "+ std::to_string(pos.first) + " - " + std::to_string(pos.second) + " because " + "T" + std::to_string(total_inputs) + ":"  + std::to_string(se.sources) + " S" + std::to_string(sum) + " M" + std::to_string(max_del_count) + ":" + std::to_string(se.total_count) + ".\n");
+                #endif
+                
+            } else {
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Valid Junction End "+ std::to_string(pos.first) + " - " + std::to_string(pos.second) + " because " + "T" + std::to_string(total_inputs) + ":"  + std::to_string(se.sources) + " S" + std::to_string(sum) + " M" + std::to_string(max_del_count) + ":" + std::to_string(se.total_count) + ".\n");
+                #endif
+            }
+        }
+    } 
+
+    for (greader_list<rpos>::iterator ri = starts.begin(); ri != starts.end(); ) {
+        bool valid = false;
+        for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = s_map[*ri].begin(); si != s_map[*ri].end() ; ++si) {
+            valid = valid || junction_validation[std::make_pair(si->first.first, si->first.second)];
+        }
+        if (valid) {
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Valid Start "+ std::to_string(*ri) + ".\n");
+            #endif
+            ++ri;
+        } else {
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Invalid Start "+ std::to_string(*ri) + ".\n");
+            #endif
+            ri = starts.erase(ri);
+        }
+    }    
+    for (greader_list<rpos>::iterator ri = ends.begin(); ri != ends.end(); ) {
+        bool valid = false;
+        for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = e_map[*ri].begin(); si != e_map[*ri].end() ; ++si) {
+            valid = valid || junction_validation[std::make_pair(si->first.first, si->first.second)];
+            
+        }
+        if (valid) {
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Valid End "+ std::to_string(*ri) + ".\n");
+            #endif
+            ++ri;
+        } else {
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Invalid End "+ std::to_string(*ri) + ".\n");
+            #endif
+            ri = ends.erase(ri);
+        }
+    }
+    
+}
+
 // ######### EXONS #########
 
 void bam_reader::create_raw_exons( chromosome* chrom, greader_list<std::pair<rpos, rpos> > &out, rpos &right) {
@@ -1458,27 +1992,37 @@ void bam_reader::create_raw_exons( chromosome* chrom, greader_list<std::pair<rpo
     
     unsigned int count = 0;
     bool in = false;
+    bool primary = false;
     rpos start;
     for (greader_list<interval>::iterator it = chrom->interval_queue.begin(); it != chrom->interval_queue.end() && (it)->right <= right; ++it) {
     
 //        logger::Instance()->debug("Interval " + std::to_string((it)->left) + " "  + std::to_string((it)->right)+".\n");
         
-        count += it->parent->count; // increase count for current interval
-        end_queue.push( std::make_pair((it)->right, it->parent->count) );
+        count += it->parent->global_count; // increase count for current interval
+        end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
        
         while ((it)->left > end_queue.top().first + 1) {
             count -= end_queue.top().second;
             // minus count because we have already added counts that are right of end_queue pos
-            if (in && count - it->parent->count < options::Instance()->get_min_coverage()) {
-                in = false;
+            if (in && count - it->parent->global_count < options::Instance()->get_min_coverage()) {
+                
 //            #ifdef ALLOW_DEBUG
 //            logger::Instance()->debug("Connected area A " + std::to_string(start) + " "  + std::to_string(end_queue.top().first) +".\n");
 //            #endif
-                pre_out.push_back(std::make_pair(start, end_queue.top().first));        
+                if (primary) {
+                    pre_out.push_back(std::make_pair(start, end_queue.top().first));   
+                }
+
+                in = false;
+                primary = false;     
             }
             
             end_queue.pop();
         }
+
+        primary = primary || it->parent->primary;
+        // logger::Instance()->debug("Check Primary " + std::to_string( it->parent->primary) + ".\n");
+
         // did we find a start?
         if (!in && count >= options::Instance()->get_min_coverage()) {
             in = true;
@@ -1498,7 +2042,9 @@ void bam_reader::create_raw_exons( chromosome* chrom, greader_list<std::pair<rpo
 //            #ifdef ALLOW_DEBUG
 //            logger::Instance()->debug("Connected area B " + std::to_string(start) + " "  + std::to_string(chrom->interval_queue.back().right)+".\n");
 //            #endif
-            pre_out.push_back(std::make_pair(start, last));        
+            if (primary) {
+                pre_out.push_back(std::make_pair(start, last));        
+            }
     }
     
     
@@ -1531,6 +2077,288 @@ void bam_reader::create_raw_exons( chromosome* chrom, greader_list<std::pair<rpo
     }
     out.push_back(*it);
 }
+
+void bam_reader::trim_exons_3(chromosome* chrom, greader_list<std::pair<rpos, rpos> > &raw, greader_list<rpos> &starts, greader_list<rpos> &ends) {
+
+    #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Trim IN 3.\n");
+    #endif
+    
+    greader_list<exon> split_raw;
+    
+    greader_list<rpos>::iterator s_it = starts.begin();
+    greader_list<rpos>::iterator e_it = ends.begin();
+    
+    
+    for(greader_list<std::pair<rpos, rpos> >::iterator raw_it = raw.begin(); raw_it != raw.end(); ++raw_it) {
+        
+        #ifdef ALLOW_DEBUG
+           logger::Instance()->debug("RAW it " + std::to_string(raw_it->first) + " "  + std::to_string(raw_it->second) +".\n");
+        #endif
+        
+        rpos pos = raw_it->first;
+        bool trimmable_start = true;
+        
+        while (true) {
+            
+            if (s_it == starts.end() && e_it == ends.end()) { 
+                break;
+            }
+            
+            rpos next;
+            bool trimmable_end;
+            bool next_trimmable_start;
+            if (s_it == starts.end() || (e_it != ends.end() && *e_it + 1 < *s_it ) ) {            
+                next = *e_it + 1;
+                trimmable_end = false;
+                next_trimmable_start = true;
+                if (next-1 > raw_it->second) {
+                    break;
+                }
+                ++e_it;
+            } else if (e_it == ends.end() || *e_it + 1 > *s_it ) {
+                next = *s_it;
+                trimmable_end = true;
+                next_trimmable_start = false;
+                if (next-1 > raw_it->second) {
+                    break;
+                }
+                ++s_it;
+            } else {
+                next = *s_it;
+                trimmable_end = false;
+                next_trimmable_start = false;
+                if (next-1 > raw_it->second) {
+                    break;
+                }
+                ++s_it;
+                ++e_it;
+            }
+            
+            split_raw.push_back(exon(pos, next-1, trimmable_start, trimmable_end));
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Trim A " + std::to_string(pos) + " "  + std::to_string(next-1) + " : " + std::to_string(trimmable_start) + " "  + std::to_string(trimmable_end) +".\n");
+            #endif
+            
+            trimmable_start = next_trimmable_start;
+            pos = next;
+        }
+        
+        if (pos != raw_it->second) {
+            split_raw.push_back(exon(pos, raw_it->second, trimmable_start, true));
+            #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Trim B " + std::to_string(pos) + " "  + std::to_string(raw_it->second) +  " : " + std::to_string(trimmable_start) + " 1.\n");
+            #endif
+        }
+    }
+    
+    const unsigned int window_size = 100;
+    
+    // here we have the raw exons
+    bool modified = false;
+    for(greader_list<exon>::iterator sr_it = split_raw.begin(); sr_it != split_raw.end(); ++sr_it) {
+        
+        #ifdef ALLOW_DEBUG
+           logger::Instance()->debug("Test Trim " + std::to_string(sr_it->start) + " "  + std::to_string(sr_it->end) +".\n");
+        #endif
+        
+        if ( sr_it->end - sr_it->start < 2 * window_size) continue;
+        
+        struct rg {
+            
+            rg(rpos l, rpos r, rcount c) : left(l), right(r), count(c)
+            {}
+            
+            rpos left, right; 
+            rcount count;
+        };   
+        greader_list<rg > pre_out;
+        std::priority_queue< std::pair<rpos, rcount>,  std::vector<std::pair<rpos, rcount>>, std::greater<std::pair<rpos, rcount> > > end_queue;
+        rpos ls = sr_it->start;
+        rcount count = 0;
+        
+        for (greader_list<interval>::iterator it = chrom->interval_queue.begin(); it != chrom->interval_queue.end() && it->left <= sr_it->end; ++it) {
+        
+            if (it->right < sr_it->start) {
+                continue;
+            }
+
+            end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
+            
+            while ((it)->left > end_queue.top().first + 1) {
+
+               if (end_queue.top().first >= ls) pre_out.push_back(rg(ls, end_queue.top().first, count)); // add this if it is a new change only!
+               
+               ls = end_queue.top().first + 1; // set next interval start to next base
+               count -= end_queue.top().second; // update counts
+               
+               end_queue.pop(); // next in queue
+            }
+            
+            if (ls < (it)->left) {
+                pre_out.push_back(rg(ls, (it)->left - 1, count)); // add this if it is a new change only!
+                ls = (it)->left;
+            } 
+            count += it->parent->global_count; // increase count for current interval
+            
+        }
+        if (ls <= sr_it->end) {
+            pre_out.push_back(rg(ls, sr_it->end, count));
+        }
+        
+        greader_list<rg >::iterator start_chi = pre_out.begin();
+        greader_list<rg >::iterator middle_chi;
+        greader_list<rg >::iterator end_chi = pre_out.begin();
+        rpos chi_left_length = 0;
+        rcount chi_left = 0;
+        rpos chi_right_length = 0;
+        rcount chi_right = 0;
+        for ( ; end_chi != pre_out.end() && chi_left_length < window_size; ++end_chi) { // fill first chi, left
+            chi_left_length += end_chi->right - end_chi->left + 1;
+            chi_left +=  end_chi->count * (end_chi->right - end_chi->left + 1);
+        }
+        if (end_chi == pre_out.end()) continue;
+        middle_chi = end_chi; // first of chi_right, accordingly
+        for ( ; end_chi != pre_out.end() && chi_right_length < window_size; ++end_chi) { // fill second chi, right
+            chi_right_length += end_chi->right - end_chi->left + 1;
+            chi_right +=  end_chi->count * (end_chi->right - end_chi->left + 1);
+        }
+        
+        float best_start_ratio = 0;
+        rpos best_start = 0;
+        float best_end_ratio = 0;
+        rpos best_end = 0;
+        // now we loop over this bad boy to test all locations!
+        while (true) { // this is easier to read with a break condition
+            
+            // check for current setting
+            
+            float avrg_left = chi_left / float(chi_left_length);
+            float avrg_right = chi_right / float(chi_right_length);
+            
+            //logger::Instance()->debug("Avrg at " +  std::to_string(middle_chi->left) + " : " + std::to_string(avrg_left) + " , " + std::to_string(avrg_right) + ".\n");
+            
+            if (avrg_right > avrg_left && avrg_right - avrg_left > 25) {  // possibly trim to source
+                if (avrg_right * 0.1 > avrg_left) { // take this as source trim
+                    float opt_cost = avrg_right / avrg_left;
+                    if (opt_cost > best_start_ratio) {
+                        best_start_ratio = opt_cost;
+                        best_start = middle_chi->left;
+                    }
+                }
+            } else if (avrg_right < avrg_left && avrg_left - avrg_right > 25) { // possibly trim to drain
+                if (avrg_left * 0.1 > avrg_right) { // take this as drain trim
+                    float opt_cost = avrg_left / avrg_right;
+                    if (opt_cost > best_end_ratio) {
+                        best_end_ratio = opt_cost;
+                        best_end = middle_chi->left;
+                    }
+                }
+            }
+            
+            // update to next position
+            chi_left_length += middle_chi->right - middle_chi->left + 1;
+            chi_left += middle_chi->count * (middle_chi->right - middle_chi->left + 1);
+            
+            chi_right_length -= middle_chi->right - middle_chi->left + 1;
+            chi_right -= middle_chi->count * (middle_chi->right - middle_chi->left + 1);
+            ++middle_chi;
+            
+            while ( chi_left_length - (start_chi->right - start_chi->left + 1) > window_size) {
+                chi_left_length -= start_chi->right - start_chi->left + 1;
+                chi_left -= start_chi->count * (start_chi->right - start_chi->left + 1);
+                ++start_chi;
+            }
+            
+            for ( ; end_chi != pre_out.end() && chi_right_length < window_size; ++end_chi) { // fill second chi, right
+                chi_right_length += end_chi->right - end_chi->left + 1;
+                chi_right +=  end_chi->count * (end_chi->right - end_chi->left + 1);
+            }
+            
+            if (chi_right_length < window_size) {
+                break; // get outa herem we can no longer do stuff!
+            }   
+        }
+
+        //if (!sr_it->fixed_start) best_start = 0;
+        //if (!sr_it->fixed_end) best_end = 0;
+        
+        if(best_start < best_end) {  // if no start is found, its 0
+            if (best_start) { // we have a start and an end!
+                if (sr_it->fixed_start && sr_it->fixed_end) {
+		        // we cut this exon to a middle isle of coverage
+		        sr_it->start = best_start;
+		        sr_it->end = best_end;
+		        modified = true;
+		        #ifdef ALLOW_DEBUG
+		            logger::Instance()->debug("Trimmed to Island " + std::to_string(best_start) + " , " + std::to_string(best_end) + ".\n");
+		        #endif
+                }
+            } else { // just the end!
+                if (sr_it->fixed_end) { // end is trimmable
+		        // cut to end
+		        sr_it->end = best_end;
+		        modified = true;
+		        #ifdef ALLOW_DEBUG
+		            logger::Instance()->debug("Trimmed End to " + std::to_string(best_end) + ".\n");
+		        #endif
+                } else {
+			sr_it = split_raw.insert(sr_it, exon(sr_it->start, best_end));
+                	++sr_it;
+                	sr_it->start = std::min(best_end + 10, sr_it->end);
+                	modified = true;
+                	#ifdef ALLOW_DEBUG
+                    	logger::Instance()->debug("Trimmed Middle 2 " + std::to_string(best_end) + " , " + std::to_string(best_start) + ".\n");
+                	#endif
+                }
+            }
+        } else if(best_start > best_end) {  // if no end is found, its 0
+            if (best_end) { // we have a start and an end!
+                // we cut out the middle region
+                sr_it = split_raw.insert(sr_it, exon(sr_it->start, best_end));
+                ++sr_it;
+                sr_it->start = best_start;
+                modified = true;
+                #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("Trimmed Middle " + std::to_string(best_end) + " , " + std::to_string(best_start) + ".\n");
+                #endif
+            } else { // just the start!
+                // cut to start
+                if (sr_it->fixed_start) { // start is trimmable
+		        sr_it->start = best_start;
+		        modified = true;
+		        #ifdef ALLOW_DEBUG
+		            logger::Instance()->debug("Trimmed Start to " + std::to_string(best_start) + ".\n");
+		        #endif
+                } else {
+                        sr_it = split_raw.insert(sr_it, exon(sr_it->start, best_start));
+                	++sr_it;
+                	sr_it->start = std::min(best_start + 10, sr_it->end);
+                	modified = true;
+                	#ifdef ALLOW_DEBUG
+                    	logger::Instance()->debug("Trimmed Middle 3 " + std::to_string(best_end) + " , " + std::to_string(best_start) + ".\n");
+                	#endif
+                }
+            }
+        }
+    }
+    
+    if (modified) {
+        raw.clear();
+        for(greader_list<exon>::iterator sr_it = split_raw.begin(); sr_it != split_raw.end(); ++sr_it) {
+            if (!raw.empty() && raw.back().second + 1 == sr_it->start) {
+                raw.back().second = sr_it->end;
+            } else {
+                raw.push_back(std::make_pair(sr_it->start, sr_it->end));
+            }
+        }
+    }
+    
+    #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Trim OUT.\n");
+    #endif
+}
+
 
 void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rpos> > &raw, greader_list<rpos> &starts, greader_list<rpos> &ends) {
 
@@ -1626,9 +2454,9 @@ void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rp
                 continue;
             }
             
-            count += it->parent->count; // increase count for current interval
+            count += it->parent->global_count; // increase count for current interval
             if (it->left <= sr_it->start) start_count += count;
-            end_queue.push( std::make_pair((it)->right, it->parent->count) );
+            end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
             
             while ((it)->left > end_queue.top().first + 1) {
                 count -= end_queue.top().second;
@@ -1669,7 +2497,7 @@ void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rp
         if (min > percentile || max < 60) {
             continue;
         }
-        
+                   
         greader_list<std::pair<rpos, rpos> > pre_out;
 
         unsigned int minimal_report = 40;
@@ -1684,13 +2512,13 @@ void bam_reader::trim_exons_2(chromosome* chrom, greader_list<std::pair<rpos, rp
                 continue;
             }
             
-            count += it->parent->count; // increase count for current interval
-            end_queue.push( std::make_pair((it)->right, it->parent->count) );
+            count += it->parent->global_count; // increase count for current interval
+            end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
 
             while ((it)->left > end_queue.top().first + 1) {
                 count -= end_queue.top().second;
                 // minus count because we have already added counts that are right of end_queue pos
-                if (in && count - it->parent->count < percentile) {
+                if (in && count - it->parent->global_count < percentile) {
                     in = false;
                     
                     if (!pre_out.empty() && start - pre_out.back().second < minimal_report) {
@@ -1923,7 +2751,7 @@ void bam_reader::trim_exons_1(chromosome* chrom, greader_list<std::pair<rpos, rp
                 continue;
             }
 
-            end_queue.push( std::make_pair((it)->right, it->parent->count) );
+            end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
 
             rpos last_pos = 0;
             while ((it)->left > end_queue.top().first + 1) {
@@ -1938,7 +2766,7 @@ void bam_reader::trim_exons_1(chromosome* chrom, greader_list<std::pair<rpos, rp
             }
             
             if (count == 0 && last_pos != 0) {
-                bases += (std::min((it)->right, last_pos) - std::max((it)->left, start_pos) + 1 ) * it->parent->count;
+                bases += (std::min((it)->right, last_pos) - std::max((it)->left, start_pos) + 1 ) * it->parent->global_count;
                 rpos length = last_pos - start_pos + 1;
 //                logger::Instance()->debug("B1 " + std::to_string(bases) + " "  + std::to_string(length) + ".\n");
                 float average = bases/(float)length;
@@ -1950,8 +2778,8 @@ void bam_reader::trim_exons_1(chromosome* chrom, greader_list<std::pair<rpos, rp
                 start_pos = (it)->left;
             }
 
-            bases += (std::min((it)->right, sr_it->end) - std::max((it)->left, start_pos) + 1 ) * it->parent->count;
-            count += it->parent->count; // increase count for current interval
+            bases += (std::min((it)->right, sr_it->end) - std::max((it)->left, start_pos) + 1 ) * it->parent->global_count;
+            count += it->parent->global_count; // increase count for current interval
         }
 
         rpos length = sr_it->end - start_pos + 1;
@@ -2030,8 +2858,8 @@ bool bam_reader::test_increasing(chromosome* chrom, rpos start, rpos end) {
             continue;
         }
 
-        count += it->parent->count; // increase count for current interval
-        end_queue.push( std::make_pair((it)->right, it->parent->count) );
+        count += it->parent->global_count; // increase count for current interval
+        end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
 
         while ((it)->left > end_queue.top().first + 1) {
             count -= end_queue.top().second;
@@ -2061,8 +2889,8 @@ bool bam_reader::test_decreasing(chromosome* chrom, rpos start, rpos end) {
             continue;
         }
 
-        count += it->parent->count; // increase count for current interval
-        end_queue.push( std::make_pair((it)->right, it->parent->count) );
+        count += it->parent->global_count; // increase count for current interval
+        end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
 
         while ((it)->left > end_queue.top().first + 1) {
             count -= end_queue.top().second;
@@ -2093,8 +2921,8 @@ rcount bam_reader::get_max_region(chromosome* chrom, rpos start, rpos end) {
             continue;
         }
 
-        count += it->parent->count; // increase count for current interval
-        end_queue.push( std::make_pair((it)->right, it->parent->count) );
+        count += it->parent->global_count; // increase count for current interval
+        end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
 
         while ((it)->left > end_queue.top().first + 1) {
             count -= end_queue.top().second;
@@ -2131,7 +2959,7 @@ bool bam_reader::get_average_to_first_zero_from_left(chromosome* chrom, rpos sta
             continue;
         }
 
-        end_queue.push( std::make_pair((it)->right, it->parent->count) );
+        end_queue.push( std::make_pair((it)->right, it->parent->global_count) );
 
         rpos last_pos = 0;
         while ((it)->left > end_queue.top().first + 1) {
@@ -2141,7 +2969,7 @@ bool bam_reader::get_average_to_first_zero_from_left(chromosome* chrom, rpos sta
             end_queue.pop();
         }
         if (count == 0 && last_pos != 0) {
-            bases += (std::min((it)->right, last_pos) - std::max((it)->left, start) + 1 ) * it->parent->count;
+            bases += (std::min((it)->right, last_pos) - std::max((it)->left, start) + 1 ) * it->parent->global_count;
             length = last_pos - start + 1;
             average = bases/(float)length;
             new_end = last_pos;
@@ -2149,8 +2977,8 @@ bool bam_reader::get_average_to_first_zero_from_left(chromosome* chrom, rpos sta
             return true;
         }
         
-        bases += (std::min((it)->right, end) - std::max((it)->left, start) + 1 ) * it->parent->count;
-        count += it->parent->count; // increase count for current interval
+        bases += (std::min((it)->right, end) - std::max((it)->left, start) + 1 ) * it->parent->global_count;
+        count += it->parent->global_count; // increase count for current interval
 
     }
 
@@ -2173,7 +3001,7 @@ bool bam_reader::get_average_to_first_zero_from_right(chromosome* chrom, rpos st
             continue;
         }
 
-        end_queue.push( std::make_pair((it)->left, it->parent->count) );
+        end_queue.push( std::make_pair((it)->left, it->parent->global_count) );
 
         rpos last_pos = 0;
         while ((it)->right + 1 < end_queue.top().first) {
@@ -2183,7 +3011,7 @@ bool bam_reader::get_average_to_first_zero_from_right(chromosome* chrom, rpos st
             end_queue.pop();
         }
         if (count == 0 && last_pos != 0) {
-            bases += (std::min((it)->right, end) - std::max((it)->left, last_pos) + 1 ) * it->parent->count;
+            bases += (std::min((it)->right, end) - std::max((it)->left, last_pos) + 1 ) * it->parent->global_count;
             length = last_pos - start + 1;
             average = bases/(float)length;
             new_start = last_pos;
@@ -2191,8 +3019,8 @@ bool bam_reader::get_average_to_first_zero_from_right(chromosome* chrom, rpos st
             return true;
         }
         
-        bases += (std::min((it)->right, end) - std::max((it)->left, start) + 1 ) * it->parent->count;
-        count += it->parent->count; // increase count for current interval
+        bases += (std::min((it)->right, end) - std::max((it)->left, start) + 1 ) * it->parent->global_count;
+        count += it->parent->global_count; // increase count for current interval
 
     }
 
@@ -2251,7 +3079,6 @@ void bam_reader::solidify_raw_exons_ends(chromosome* chrom, greader_list<std::pa
             raw_it->second = *(ce_it-1);
         }
         
-        
         if (raw_it->first > raw_it->second || raw_it->second - raw_it->first < options::Instance()->get_min_raw_exon_size()) {
             raw_it = raw.erase(raw_it);
         } else {
@@ -2267,7 +3094,7 @@ void bam_reader::update_existing_exons( connected* connected, chromosome* chrom,
 
             logger::Instance()->debug("Update existing. " + std::to_string(connected->fossil_exons.ref().size()) + "\n");
             for ( greader_list<exon* >::iterator fix_it = connected->fossil_exons.ref().begin(); fix_it != connected->fossil_exons.ref().end(); ++fix_it) {
-                logger::Instance()->debug("Fossil " + std::to_string((*fix_it)->start) + " " + std::to_string((*fix_it)->end) + "\n");
+                logger::Instance()->debug("Fossil " + std::to_string((*fix_it)->start) + " " + std::to_string((*fix_it)->end) + " Fixed " + std::to_string((*fix_it)->fixed_start) + "-" + std::to_string((*fix_it)->fixed_end) + "\n");
             }
            for (  greader_list<std::pair<rpos, rpos> >::iterator raw_it = raw.begin(); raw_it != raw.end(); ++raw_it) {
                logger::Instance()->debug("Raw " + std::to_string(raw_it->first) + " " + std::to_string(raw_it->second) + "\n");
@@ -2429,75 +3256,9 @@ void bam_reader::update_existing_exons( connected* connected, chromosome* chrom,
                 } else {
                     // we need to merge two separate exons...
                     // get everything in next and erase itr
-
-                    greader_refsorted_list<raw_atom* >::iterator single_first = connected->atoms.ref().end();
-                    greader_refsorted_list<raw_atom* >::iterator single_next = connected->atoms.ref().end();
-                    greader_refsorted_list<raw_atom* >::iterator both = connected->atoms.ref().end();
-                    
-                    unsigned int count = 0;
-                    for (greader_refsorted_list<raw_atom* >::iterator m = connected->atoms.ref().begin(); m !=  connected->atoms.ref().end() ; ++m) {
                         
-                        if( (*m)->exons->size() > 2) {
-                            continue;
-                        }
-                        
-                        greader_refsorted_list<exon*>::iterator first_s = (*m)->exons.ref().find(*fix_it);
-                        greader_refsorted_list<exon*>::iterator next_s = (*m)->exons.ref().find(*next);
-                        
-                        if (first_s != (*m)->exons.ref().end() && next_s != (*m)->exons.ref().end()) {
-                            both = m;
-                            ++count;
-                        } else if (first_s != (*m)->exons.ref().end() ) {
-                            single_first = m;
-                            ++count;
-                        } else if (next_s != (*m)->exons.ref().end() ) {
-                            single_next = m;
-                            ++count;
-                        } 
-                    }
-                    
-                    if (single_next != connected->atoms.ref().end() && (single_first != connected->atoms.ref().end() || both != connected->atoms.ref().end())) {
-                        // switch out in paired
-                        for (greader_refsorted_list<raw_atom* >::iterator m = connected->atoms.ref().begin(); m !=  connected->atoms.ref().end() ; ++m) {
-                            
-                            // single partner
-                            paired_map<raw_atom*, gmap<int, rcount> >::iterator ri = (*m)->paired.find(*single_first);
-                            if (ri != (*m)->paired.end()) {
-                                for ( gmap<int, rcount>::iterator rii = ri->second.begin(); rii != ri->second.end(); ++rii) {
-                                    (*m)->paired[*single_next][rii->first] += rii->second;
-                                }
-                                (*m)->paired.erase(ri);
-                            }
-                            // both partner
-                            ri = (*m)->paired.find(*both);
-                            if (ri != (*m)->paired.end()) {
-                                for ( gmap<int, rcount>::iterator rii = ri->second.begin(); rii != ri->second.end(); ++rii) {
-                                    (*m)->paired[*single_next][rii->first] += rii->second;
-                                }
-                                (*m)->paired.erase(ri);
-                            }
-                            
-                        }
-                        if (single_first != connected->atoms.ref().end()) connected->atoms.ref().erase(single_first);
-                        if (both != connected->atoms.ref().end()) connected->atoms.ref().erase(both);
-                        
-                    } else  if (single_first != connected->atoms.ref().end() && both != connected->atoms.ref().end()) {
-                        for (greader_refsorted_list<raw_atom* >::iterator m = connected->atoms.ref().begin(); m !=  connected->atoms.ref().end() ; ++m) {
-                            
-                            // both partner
-                            paired_map<raw_atom*, gmap<int, rcount> >::iterator ri = (*m)->paired.find(*both);
-                            if (ri != (*m)->paired.end()) {
-                                for ( gmap<int, rcount>::iterator rii = ri->second.begin(); rii != ri->second.end(); ++rii) {
-                                    (*m)->paired[*single_next][rii->first] += rii->second;
-                                }
-                                (*m)->paired.erase(ri);
-                            }
-                            
-                        }
-                        connected->atoms.ref().erase(both);
-                    }
-                        
-                    (*next)->start = (*fix_it)->start;    
+                    (*next)->start = (*fix_it)->start;
+                    (*next)->fixed_start = (*fix_it)->fixed_start;
                         
                     // sadly we need to resort...
                     lazy<greader_refsorted_list<raw_atom* > > new_atom_order;
@@ -2513,7 +3274,28 @@ void bam_reader::update_existing_exons( connected* connected, chromosome* chrom,
                             (*m)->exons.ref().insert(*next); // insert other instead
                         }
                         
-                        new_atom_order->insert(*m);
+                        // we need to filter out any duplicates here! Old version was just over complicated
+                        greader_refsorted_list<raw_atom* >::iterator naoi = new_atom_order->find(*m);
+                        if (naoi != new_atom_order->end()) {
+                          // we already have this, so change out paired info
+                            for (greader_refsorted_list<raw_atom* >::iterator m2 = connected->atoms.ref().begin(); m2 !=  connected->atoms.ref().end() ; ++m2) {
+                                // single partner
+                                paired_map<raw_atom*, gmap<int, rcount> >::iterator ri = (*m2)->paired.find(*m);
+                                if (ri != (*m2)->paired.end()) {
+                                    for ( gmap<int, rcount>::iterator rii = ri->second.begin(); rii != ri->second.end(); ++rii) {
+                                        (*m2)->paired[*naoi][rii->first] += rii->second;
+                                    }
+                                    (*m2)->paired.erase(ri);
+                                }
+                            }
+                            
+                            for (gmap<int, raw_series_counts>::iterator rsci = (*m)->raw_series.begin(); rsci != (*m)->raw_series.end(); ++rsci ) {
+                                (*naoi)->raw_series[rsci->first].add_other_max_min(rsci->second, (*next)->start, (*next)->end);
+                            }
+                            
+                        } else {
+                          new_atom_order->insert(*m);
+                        }
                     }
                     connected->atoms = new_atom_order;
                      
@@ -2843,15 +3625,15 @@ void bam_reader::assign_reads( connected* conn, chromosome* chrom) {
         
         // loop over (still sorted) intervals
         for (greader_list<interval >::iterator i_it = i_it_start; i_it != chrom->interval_queue.end(); ++i_it) {
-            
+                     
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("START " + std::to_string((i_it)->left)+ "-" + std::to_string((i_it)->right)+ ";" + std::to_string((*e_it)->start) + " - " + std::to_string((*e_it)->end) + "\n");
             
-                    if ((i_it)->parent->id_set)  {
-                        logger::Instance()->debug( "ID " + *(i_it)->parent->ids->begin() + "\n");
-                    }
+                  //  if ((i_it)->parent->id_set)  {
+                  //      logger::Instance()->debug( "ID " + (i_it)->parent->ids.ref()[0][0]+ "\n");
+                  //  }
             #endif
-            
+
             // test for starts
             if ((i_it)->right < (*e_it)->start && i_it == i_it_start) { // cannot overlap anymore, therefore increase start counter to one ahead
                 ++i_it_start;
@@ -2907,11 +3689,11 @@ void bam_reader::assign_reads( connected* conn, chromosome* chrom) {
 }
 
 
-void bam_reader::filter_outer_read_junctions(chromosome* chrom) {
+void bam_reader::filter_outer_read_junctions(chromosome* chrom, std::map< std::pair<rpos, rpos>, bool > &junction_validation, unsigned int total_inputs) {
 
     lazy<r_border_set<rpos> > fs = chrom->fixed_exon_starts;
     lazy<r_border_set<rpos> > fe = chrom->fixed_exon_ends;
-    
+        
     for ( greader_list<rread>::iterator r_it = chrom->read_queue.begin(); r_it != chrom->read_queue.end(); ++r_it) {
 
         if (r_it->atom == NULL || r_it->atom->exons->size() < 2) {
@@ -2919,24 +3701,24 @@ void bam_reader::filter_outer_read_junctions(chromosome* chrom) {
             continue;
         }
          
-//      for (std::map< std::pair<rpos, rpos>, unsigned int >::iterator i =  chrom->splice_queue.begin(); i != chrom->splice_queue.end(); ++i) {
-//            logger::Instance()->debug("Known Splice " + std::to_string(i->first.first ) + ":" + std::to_string(i->first.second) + " " + std::to_string(i->second) + "\n" );
-//      }
-        
         greader_refsorted_list<exon*>::iterator ei = r_it->atom->exons->begin();
         greader_refsorted_list<exon*>::iterator ein = ei;
         ++ein; 
         for ( ; ein != r_it->atom->exons->end() && !r_it->block; ++ei, ++ein ) {
             
-//            logger::Instance()->debug("Test SPlice " + std::to_string((*ei)->end+1) + ":" + std::to_string((*ein)->start-1) + "\n" );
+            //logger::Instance()->debug("Test SPlice " + std::to_string((*ei)->end+1) + ":" + std::to_string((*ein)->start-1) + "\n" );
 
             if ((*ei)->end+1 == (*ein)->start) {
                 continue;
             }
             
-            std::map< std::pair<rpos, rpos>, unsigned int >::iterator splice_count = chrom->splice_queue.find(std::make_pair( (*ei)->end+1, (*ein)->start-1) );
-            if ( splice_count == chrom->splice_queue.end() && splice_count->second < options::Instance()->get_min_junction_coverage()) {
-//                logger::Instance()->debug("block\n" );
+            //std::map< std::pair<rpos, rpos>, bool >::iterator jv = junction_validation.find(std::make_pair( (*ei)->end+1, (*ein)->start-1));
+            //#ifdef ALLOW_DEBUG
+            //logger::Instance()->debug("JV " + std::to_string((*ei)->end+1) + " - " + std::to_string((*ein)->start-1) + " valid " + std::to_string(jv!=junction_validation.end()) + "\n" );
+            //#endif
+
+            if ( ! junction_validation[std::make_pair( (*ei)->end+1, (*ein)->start-1)] ) { // not a validated junction, kill whole
+                //logger::Instance()->debug("block\n" );
                 r_it->block = true;
             }
         }
@@ -3037,7 +3819,7 @@ void bam_reader::reduce_atoms(connected* conn, chromosome* chrom) {
         if (r_it->atom == NULL || r_it->block) {
             // this read was capped by a filter !
             #ifdef ALLOW_DEBUG
-            logger::Instance()->debug("Filtered Read " + std::to_string(r_it->left_limit) + " " + std::to_string(r_it->right_limit) + " - " + std::to_string(r_it->count) + " Blocked " + std::to_string(r_it->block) + ".\n");
+            logger::Instance()->debug("Filtered Read " + std::to_string(r_it->left_limit) + " " + std::to_string(r_it->right_limit)  + " Blocked " + std::to_string(r_it->block) + ".\n");
             if (r_it->atom != NULL) {
                     logger::Instance()->debug("Blocked Atom " + r_it->atom->to_string() + ".\n");
                  
@@ -3103,11 +3885,14 @@ void bam_reader::reduce_atoms(connected* conn, chromosome* chrom) {
 
         // now add info of current read!
         if (r_it->id_set) {
-           _MOVE_RANGE( r_it->ids.ref().begin(), r_it->ids.ref().end(), std::back_inserter(rc->open_ids.ref()));
+            for (gmap<int, greader_list<std::string> >::iterator mi = r_it->ids.ref().begin(); mi != r_it->ids.ref().end(); mi++) {
+                _MOVE_RANGE( mi->second.begin(), mi->second.end(), std::back_inserter(rc->open_ids.ref()[mi->first]));
+            }       
         }
-        rc->count += r_it->count;
+        for (gmap<int, unsigned int>::iterator c_it = r_it->count.begin(); c_it != r_it->count.end(); c_it++ ) {
+            rc->counts.ref()[c_it->first].count += c_it->second;
+        }
         rc->length_filtered = rc->length_filtered && rc_joined->length_filtered;
-        
         delete rc_joined;
     }
     
@@ -3134,7 +3919,9 @@ void bam_reader::mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom
         #endif
         
         for (greader_refsorted_list<read_collection*>::iterator c_it = (*a_it)->reads.ref().begin(); c_it != (*a_it)->reads.ref().end(); ++c_it) {
-             for (greader_list<std::string>::iterator i_it = (*c_it)->open_ids.ref().begin(); i_it != (*c_it)->open_ids.ref().end(); ++i_it) {
+            for (gmap<int, greader_list<std::string> >::iterator oi_it = (*c_it)->open_ids.ref().begin(); oi_it != (*c_it)->open_ids.ref().end(); ++oi_it) {
+             int index = oi_it->first;
+             for (greader_list<std::string>::iterator i_it = oi_it->second.begin(); i_it != oi_it->second.end(); ++i_it) {
                 
                 #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("ID: " + *i_it + "\n");
@@ -3142,7 +3929,7 @@ void bam_reader::mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom
                 
                 boost::unordered_map<std::string, std::tuple<raw_atom*, read_collection*, std::string* > > ::iterator find = id_map.find(*i_it);
             
-                 if ( find == id_map.end()) {
+                if ( find == id_map.end()) {
                     id_map[*i_it] = std::make_tuple(&*(*a_it), &*(*c_it), &*i_it);
                 } else {
                     // we found a pair
@@ -3235,13 +4022,13 @@ void bam_reader::mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom
                             rc = *rc_it;
                         }
                         
-                        rc->count+=2;
-                        ++rc->paired_count;
+                        rc->counts.ref()[index].count+=2;
+                        ++rc->counts.ref()[index].paired_count;
                         
-                        --fcol->count;
-                        --(*c_it)->count;
+                        --fcol->counts.ref()[index].count;
+                        --(*c_it)->counts.ref()[index].count;
                            
-                        rc->holes->push_back(std::make_pair(fcol->right_limit, (*c_it)->left_limit));
+                        rc->counts.ref()[index].holes->push_back(std::make_pair(fcol->right_limit, (*c_it)->left_limit));
                         
                         delete joined_atom;
                         delete rc_joined;
@@ -3353,17 +4140,16 @@ void bam_reader::mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom
                                     rco = *rc_it;
                                 }
 
-                                ++rco->count;
-
+                                ++rco->counts.ref()[index].count;
 
                                 delete rc_overlap;
                             }
 
-                            rcj->count+=2;
-                            ++rcj->paired_count;
+                            rcj->counts.ref()[index].count+=2;
+                            ++rcj->counts.ref()[index].paired_count;
 
-                            --fcol->count;
-                            --(*c_it)->count;
+                            --fcol->counts.ref()[index].count;
+                            --(*c_it)->counts.ref()[index].count;
 
                             delete overlap_atom;
                             delete joined_atom;
@@ -3373,7 +4159,7 @@ void bam_reader::mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom
 //                        ++fcol->paired[&*(*c_it)];
                     } else {
                         
-                        ++fcol->paired[&*(*c_it)];
+                        ++fcol->counts.ref()[index].paired[&*(*c_it)];
                         
                     }
                     
@@ -3401,6 +4187,7 @@ void bam_reader::mark_or_reduce_paired_atoms( connected* conn, chromosome* chrom
                     }
                 } 
             }
+           }
         }
     }
     for (greader_refsorted_list<raw_atom*>::iterator a_it = atom_start; a_it != atom_end; ++a_it) {  
@@ -3545,7 +4332,7 @@ void bam_reader::filter_bins(connected* conn, chromosome* chrom) {
 }
 
 
-void bam_reader::reduce_reads(connected* conn, const unsigned int id) {
+void bam_reader::reduce_reads(connected* conn) {
     
     for (greader_refsorted_list<raw_atom*>::iterator a_it = conn->atoms->begin(); a_it != conn->atoms->end(); ++a_it) {
         
@@ -3555,19 +4342,21 @@ void bam_reader::reduce_reads(connected* conn, const unsigned int id) {
         #endif
           
         for (greader_refsorted_list<read_collection*>::iterator c_it = (*a_it)->reads.ref().begin(); c_it != (*a_it)->reads.ref().end(); ++c_it) {
-            
-//            logger::Instance()->debug("Collection " + std::to_string((*c_it)->count) + " " + std::to_string((*c_it)->paired_count) + "\n");
+          for (gmap<int, read_collection::raw_count >::iterator co_it = (*c_it)->counts->begin(); co_it != (*c_it)->counts->end(); ++co_it) {  
+              int id = co_it->first;
+
+//            logger::Instance()->debug("Collection " + std::to_string(co_it->second.count) + " " + std::to_string((co_it->second.paired_count) + "\n");
   
 //            logger::Instance()->debug("Add collection \n");
             // basic info to break down
-            (*a_it)->raw_series[id].paired_count += (*c_it)->paired_count;
-            (*a_it)->raw_series[id].count += (*c_it)->count;
+            (*a_it)->raw_series[id].paired_count += co_it->second.paired_count;
+            (*a_it)->raw_series[id].count += co_it->second.count;
             (*a_it)->length_filtered = (*a_it)->length_filtered && (*c_it)->length_filtered;
-            if ((*c_it)->count != 0) { // we still add the rest as 0 for filtering, as we still saw them, just moved them
+            if (co_it->second.count != 0) { // we still add the rest as 0 for filtering, as we still saw them, just moved them
                 (*a_it)->has_coverage = true;
             }
             
-            rcount fragcount = (*c_it)->count - (*c_it)->paired_count;
+            rcount fragcount = co_it->second.count - co_it->second.paired_count;
             
             std::map< rpos,rcount >::iterator fl = (*a_it)->raw_series[id].lefts->find((*c_it)->left_limit);
             if (fl == (*a_it)->raw_series[id].lefts->end()) {
@@ -3593,7 +4382,7 @@ void bam_reader::reduce_reads(connected* conn, const unsigned int id) {
                 (*a_it)->raw_series[id].total_lefts += fragcount;                    
             }
             
-            for (std::deque<std::pair<rpos, rpos> >::iterator hole_it = (*c_it)->holes->begin(); hole_it != (*c_it)->holes->end();++hole_it) {
+            for (std::deque<std::pair<rpos, rpos> >::iterator hole_it = co_it->second.holes->begin(); hole_it != co_it->second.holes->end();++hole_it) {
                 // unfortunately we need to find the actual exons for this
                     
                     std::map< rpos,rcount >::iterator fl = (*a_it)->raw_series[id].hole_starts->find(hole_it->first);
@@ -3611,10 +4400,11 @@ void bam_reader::reduce_reads(connected* conn, const unsigned int id) {
             }
                     
             // now transfer actual paired
-            for(paired_map<read_collection*, rcount >::iterator pair_it = (*c_it)->paired.begin(); pair_it != (*c_it)->paired.end(); ++pair_it) {
+            for(paired_map<read_collection*, rcount >::iterator pair_it = co_it->second.paired.begin(); pair_it != co_it->second.paired.end(); ++pair_it) {
               //  logger::Instance()->debug("Add paired \n");
                 (*a_it)->paired[pair_it->first->parent][id] +=  pair_it->second;
             }
+          }
         }
         (*a_it)->reads.ref().clear();
     }

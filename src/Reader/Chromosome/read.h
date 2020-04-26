@@ -13,6 +13,7 @@
 #include "../../Datatype_Templates/reader_list.h"
 #include "../../Datatype_Templates/misc_types.h"
 #include "../../Datatype_Templates/lazy.h"
+#include "../../Datatype_Templates/maps.h"
 
 class interval;
 class raw_atom;
@@ -20,13 +21,14 @@ class raw_atom;
 class rread {
 public:
     rread();
-    rread(const std::string &id);
+    rread(const std::string &id, int index);
     rread(const rread &r);
     virtual ~rread();
     
     // for finding pairs again
-    lazy<greader_list<std::string>>  ids;
-    rcount count;
+    lazy<gmap<int, greader_list<std::string> > >  ids;
+    unsigned int global_count;
+    gmap<int, unsigned int> count;
     
     bool id_set;
      
@@ -35,6 +37,7 @@ public:
     rpos left_limit, right_limit, length;
     
     bool block;
+    bool primary;
     
     raw_atom* create_atom();
     
@@ -47,7 +50,8 @@ public:
     void add_length(interval* i) ;
     rpos get_length();
     
-    void add_id(std::string &s);
+    void add_count(int index);
+    void add_id(std::string &s, int index);
     
 private:
 

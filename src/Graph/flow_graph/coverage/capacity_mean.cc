@@ -8,6 +8,7 @@
 #include "capacity_mean.h"
 #include "../../../Logger/logger.h"
 #include <math.h>
+#include <cmath>
 #include <deque>
 
 capacity_mean::capacity_mean() : mean(0), hidden_score(0), weight(0) {
@@ -20,7 +21,7 @@ capacity_mean::capacity_mean(float m, rpos w) : mean(m), hidden_score(0), weight
 
 void capacity_mean::update(capacity_mean &o) {
     
-    logger::Instance()->debug("Update " + std::to_string(o.mean) + "/" + std::to_string(mean) + " " + std::to_string(o.weight) + "/" + std::to_string(weight) + "\n");
+   // logger::Instance()->debug("Update " + std::to_string(o.mean) + "/" + std::to_string(mean) + " " + std::to_string(o.weight) + "/" + std::to_string(weight) + "\n");
     
     mean = mean + o.weight/(float) (weight+o.weight) * (o.mean -  mean);
     weight += o.weight;
@@ -34,12 +35,24 @@ void capacity_mean::sum_up(capacity_mean& rhs, unsigned int i) {
 
 
 void capacity_mean::reduce(float percentage) {
-    logger::Instance()->debug("Reduce by " + std::to_string(percentage) + "\n");
+    //logger::Instance()->debug("Reduce by " + std::to_string(percentage) + "\n");
+    
+    if (std::isnan(percentage) || percentage < 0.0001) {
+        percentage = 0.001;
+    }
     
     mean = mean * percentage;
     for (std::deque<float>::iterator si = scores.begin(); si != scores.end(); ++si) {
         *si = *si * percentage;
     }
+}
+
+void capacity_mean::assign_mean(float m) {
+
+    if (std::isnan(m) || m < 0.0001 ) {
+        m = 0.01;
+    }
+    mean = m;
 }
 
 float capacity_mean::compute_score() {

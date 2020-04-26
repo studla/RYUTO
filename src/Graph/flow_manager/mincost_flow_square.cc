@@ -17,7 +17,7 @@ mincost_flow_square::~mincost_flow_square() {
 
 void mincost_flow_square::add_offset_edge(capacity_type capacity, capacity_type orig_cap, int exon_count,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference) {
     
     if (orig_cap == 0) orig_cap = 1;
@@ -37,6 +37,7 @@ void mincost_flow_square::add_offset_edge(capacity_type capacity, capacity_type 
         capacity_type c2 = i-step_interval;
         
         cost[na] = (c1*c1 - c2*c2 ) / step_interval * int_scaling_factor / orig_cap * mod;
+        cost[na] = std::max(cost[na], 1ll);
         reference.push_back(na);
         
     }
@@ -52,6 +53,7 @@ void mincost_flow_square::add_offset_edge(capacity_type capacity, capacity_type 
         capacity_type c2 = i;
         
         cost[na] = (c1*c1 - c2*c2 ) / leftover * int_scaling_factor / orig_cap * mod;
+        cost[na] = std::max(cost[na], 1ll);
         reference.push_back(na);
     } 
 }

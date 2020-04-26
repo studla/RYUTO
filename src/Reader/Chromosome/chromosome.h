@@ -44,10 +44,22 @@ public:
     // block queues
     greader_list<rread > read_queue;
     greader_list<interval> interval_queue;
-    std::map< std::pair<rpos, rpos>, unsigned int > splice_queue;
+    std::map< std::pair<rpos, rpos>, std::map< int, std::pair<unsigned int, bool > > > splice_queue;
     
-    greader_list<std::pair<rpos, bool> > known_starts;
-    greader_list<std::pair<rpos, bool> > known_ends; 
+    struct raw_position {
+        
+        raw_position(rpos p, bool e, int i) : position(p), evidence(e), index(i) {};
+        
+        rpos position;
+        bool evidence;
+        int index;
+        
+        bool operator<(const raw_position& rhs) const { return position < rhs.position; }
+        
+    };
+    
+    greader_list<raw_position > known_starts;
+    greader_list<raw_position > known_ends; 
     
     // has guide
     bool has_guide;

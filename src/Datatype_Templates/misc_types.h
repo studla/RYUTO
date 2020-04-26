@@ -10,11 +10,11 @@
 
 // type for read counts and 
 typedef unsigned long rcount;
-typedef long long unsigned_rcount;
+typedef long long long_signed_rcount;
 typedef unsigned long rpos;
 
 typedef rcount capacity_type;
-typedef long long unsigned_capacity_type;
+typedef long long signed_long_capacity_type;
 
 #endif	/* MISC_TYPES_H */
 

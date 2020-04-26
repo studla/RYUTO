@@ -52,7 +52,7 @@ public:
     
     // denoise the graph
     void denoise_graph(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, int id); 
-    void denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id);
+    void denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, bool double_denoise);
     
     // void extract_transcripts_from_flow(std::ostream &gs);
     void extract_transcripts_from_flow();

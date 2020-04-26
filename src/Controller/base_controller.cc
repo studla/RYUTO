@@ -23,23 +23,53 @@
 #include <hts.h>
 #include <vector>
 
-void print_memory() {
-    
-    struct sysinfo memInfo;
+//#include <chrono> 
+//using namespace std::chrono; 
 
-    sysinfo (&memInfo);
-    long long totalVirtualMem = memInfo.totalram;
-    //Add other values in next statement to avoid int overflow on right hand side...
-    totalVirtualMem += memInfo.totalswap;
-    totalVirtualMem *= memInfo.mem_unit;
+//void print_memory() {
+//    
+//    struct sysinfo memInfo;
+//
+//    sysinfo (&memInfo);
+//    long long totalVirtualMem = memInfo.totalram;
+//    //Add other values in next statement to avoid int overflow on right hand side...
+//    totalVirtualMem += memInfo.totalswap;
+//    totalVirtualMem *= memInfo.mem_unit;
+//    
+//    long long physMemUsed = memInfo.totalram - memInfo.freeram;
+//    //Multiply in next statement to avoid int overflow on right hand side...
+//    physMemUsed *= memInfo.mem_unit;
+//    
+//    logger::Instance()->error("VirtualTotal " + std::to_string(totalVirtualMem) + " PhysUsed " + std::to_string(physMemUsed) + "\n");
+//}
+
+
+#include <iostream>
+#include <fstream>
+#include <unistd.h>
+
+void print_memory()
+{
+    double vm_usage     = 0.0;
+    double resident_set = 0.0;
+
+    // the two fields we want
+    unsigned long vsize;
+    long rss;
+    {
+        std::string ignore;
+        std::ifstream ifs("/proc/self/stat", std::ios_base::in);
+        ifs >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore
+                >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore
+                >> ignore >> ignore >> vsize >> rss;
+    }
+
+    long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024; // in case x86-64 is configured to use 2MB pages
+    vm_usage = vsize / 1024.0;
+    resident_set = rss * page_size_kb;
     
-    long long physMemUsed = memInfo.totalram - memInfo.freeram;
-    //Multiply in next statement to avoid int overflow on right hand side...
-    physMemUsed *= memInfo.mem_unit;
-    
-    logger::Instance()->info("VirtualTotal " + std::to_string(totalVirtualMem) + " PhysUsed " + std::to_string(physMemUsed) + "\n");
+    logger::Instance()->error("VirtualTotal " + std::to_string(vm_usage) + " PhysUsed " + std::to_string(resident_set) + "\n");
 }
-
 
 base_controller::base_controller() {
 }
@@ -79,7 +109,8 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
         reader.return_chromosome_names(*str, names);
         read_counts.push_back(reader.return_read_count(*str));
         
-        ids.insert(i);
+        ids.insert( options::Instance()->get_input_to_id()[i]);
+        //logger::Instance()->error("File: " + *str + " " + std::to_string(i) + " ID " + std::to_string(options::Instance()->get_input_to_id()[i]) + "\n");
     }
     std::set<int> base_ids = ids;
     int main_id = 0;
@@ -112,27 +143,33 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
              #endif
         logger::Instance()->info("\n");
         
-        
         // this code is called for each thread individually, with no fixed order
-        unsigned int i = 0;
-        for (std::vector<std::string>::iterator file = files.begin(); file != files.end(); ++file, ++i) {
-            
-            logger::Instance()->info("Reading "+ *chrom + " from file "+ *file + "\n");
-            
-            std::vector<std::string>::iterator next = file;
-            ++next;
-            
-            reader.read_chromosome(*file, *chrom, i, next==files.end() );           
-        }
+        logger::Instance()->info("Reading "+ *chrom + "\n");
+        reader.read_chromosome(files, *chrom ); 
+        
+//        auto ts = high_resolution_clock::now(); 
         reader.finalize(*chrom);
-
+//        auto te = high_resolution_clock::now();
+//        auto d = duration_cast<microseconds>(te - ts);
+//        logger::Instance()->info("Finalized in: " + std::to_string(d.count()) + "\n");
         
         logger::Instance()->info("Finalized "+ *chrom + " ========================= \n");
-        
+    
+        std::map<int, std::ofstream> of_gtf_map;
+        std::ofstream of_count(options::Instance()->get_output_dir()+"/"+*chrom + "_input.count") ;
+        for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
+            
+            if (ids.size() > 1 && !options::Instance()->is_compute_all_singles() && *iid != -1) {
+                continue;
+            }
+            
+            of_gtf_map[*iid] = std::ofstream(options::Instance()->get_output_dir()+"/"+*chrom + "_input" + std::to_string(*iid) + ".gtf") ;
+            
+        }
         
         // second level of parallelization
         unsigned int total =  reader.get_num_connected(*chrom);
-        #pragma omp parallel for num_threads(options::Instance()->get_parallel_graphs())
+        #pragma omp parallel for num_threads(options::Instance()->get_parallel_graphs()) ordered
         for (unsigned int j = 0; j < total; ++j) {
             
             
@@ -186,21 +223,38 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
             
             delete meta;
             
+            std::string gene_id = std::to_string(c) + "_" + std::to_string(index);
             for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
                 
+                if (ids.size() > 1 && !options::Instance()->is_compute_all_singles() && *iid != -1) {
+                    continue;
+                }
+                
                 group_transcripts[*iid].input_main_id = main_id;
-                group_transcripts[*iid].filter_transcripts(*iid);
-
-                std::ofstream tmp_b(options::Instance()->get_output_dir()+"/tmp_" + *chrom + "_input" + std::to_string(*iid) + "_" + std::to_string(index)+ ".gtf");
-                std::string gene_id = std::to_string(c) + "_" + std::to_string(index);
-                group_transcripts[*iid].print_gtf(tmp_b, gene_id);
-                tmp_b.close();      
+                
+                if (ids.size() > 1 && *iid == -1) {
+                    group_transcripts[*iid].filter_transcripts(ids);
+                } else {
+                    group_transcripts[*iid].filter_transcripts(*iid);
+                }
+                
+                #pragma omp ordered 
+                {
+                    group_transcripts[*iid].print_gtf(of_gtf_map[*iid], gene_id);  
+                }
+            }
+            #pragma omp ordered 
+            {
+            group_transcripts[main_id].print_count_matrix(of_count, gene_id, ids);
             }
         }
         
+//        logger::Instance()->error("Pre-Discard "+ *chrom + "\n");
+//        print_memory();
         reader.discard(*chrom);
+//        logger::Instance()->error("Post-Discard "+ *chrom + "\n");
+//        print_memory();
 
-        logger::Instance()->info("Join " + *chrom + "\n");
         
         // concat all result files
         
@@ -221,26 +275,16 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
 //            res_a.close();   
 //        }
         
-        for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
-            std::ofstream res_b(options::Instance()->get_output_dir()+"/"+*chrom + "_input" + std::to_string(*iid) + ".gtf") ; 
-            for (unsigned int j = 0; j < total; ++j) {
-
-                std::string s_b = options::Instance()->get_output_dir()+"/tmp_" + *chrom + "_input" + std::to_string(*iid) + "_" + std::to_string(j)+".gtf";
-
-                std::ifstream tmp_b(s_b) ;
-
-                if (!tmp_b.fail() && tmp_b.peek() != std::ifstream::traits_type::eof()) {
-                    res_b << tmp_b.rdbuf();
-                }
-                tmp_b.close();
-
-                std::remove(s_b.c_str());
-            }
-            res_b.close();
-        }
     }
     
+//    logger::Instance()->error("Post-Join \n");
+//    print_memory();
+    
     for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
+        
+        if (ids.size() > 1 && !options::Instance()->is_compute_all_singles() && *iid != -1) {
+            continue;
+        }
         
         std::string full_name = options::Instance()->get_output_dir()+"/";
         if (*iid == -1 || ids.size() == 1) {
@@ -270,6 +314,42 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
         }
         full.close();
     }
+    
+    std::string full_name_count = options::Instance()->get_output_dir()+"/transcripts.count";
+    std::ofstream full(full_name_count) ; 
+    full << "Gene\tTranscript\tLength";
+
+    std::vector<std::string>::iterator str = files.begin();
+    unsigned int pi = 1;
+    while (str != files.end()) {
+         full << "\tI" << pi ;
+         for (unsigned int i = 0; i < options::Instance()->get_pooling() && str != files.end(); ++i) {
+            full << ":" << getFileName(*str);
+            ++str;
+         }
+         ++pi;
+    }
+    full << "\n";
+    
+    for (greader_name_set<std::string>::iterator name_it = names.begin(); name_it != names.end(); ++name_it) {
+
+        std::string chrp = options::Instance()->get_output_dir()+"/"+*name_it + "_input.count";
+
+        std::ifstream chrg(chrp); 
+
+        if (chrg.fail() || chrg.peek() == std::ifstream::traits_type::eof()) {
+            std::remove(chrp.c_str());
+            continue;
+        }
+
+        full << chrg.rdbuf();
+        chrg.close();
+
+       std::remove(chrp.c_str());
+
+    }
+    full.close();
+
 }
 
 base_manager * base_controller::create_flow_handler(pre_graph* raw, exon_meta* meta, const std::string &chrom, std::set<int> &ids) {
@@ -349,4 +429,17 @@ bool base_controller::create_path( mode_t mode, std::string& path )
              ++ iter;
     }
     return true;
+}
+
+std::string base_controller::getFileName(std::string filePath, bool withExtension, char seperator)
+{
+	// Get last dot position
+	std::size_t dotPos = filePath.rfind('.');
+	std::size_t sepPos = filePath.rfind(seperator);
+ 
+	if(sepPos != std::string::npos)
+	{
+		return filePath.substr(sepPos + 1, filePath.size() - (withExtension || dotPos != std::string::npos ? 1 : dotPos) );
+	}
+	return "";
 }

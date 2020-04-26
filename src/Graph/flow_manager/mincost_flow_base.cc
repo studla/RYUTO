@@ -45,8 +45,12 @@ void mincost_flow_base::finalize_flow_graph(int id) {
 
 void mincost_flow_base::compute_flow(int id) {
     
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Compute Max Flow ID " + std::to_string(id) + ".\n");
+    #endif
+        
     // we try to find the maximum flow that needs to be pushed through all
-    ListDigraph::NodeMap<unsigned_capacity_type> ex_flow(g);
+    ListDigraph::NodeMap<signed_long_capacity_type> ex_flow(g);
     capacity_type max_supply = find_exogenous_flow(ex_flow, id);
     init_variables(max_supply);
     
@@ -61,9 +65,9 @@ void mincost_flow_base::compute_flow(int id) {
     
     ListDigraph og;
     ListDigraph::ArcMap<capacity_type> upper(og);
-    ListDigraph::ArcMap<unsigned_capacity_type> cost(og); 
-    ListDigraph::NodeMap<unsigned_capacity_type> supply(og);
-    ListDigraph::ArcMap<unsigned_capacity_type> flowmap(og);
+    ListDigraph::ArcMap<signed_long_capacity_type> cost(og); 
+    ListDigraph::NodeMap<signed_long_capacity_type> supply(og);
+    ListDigraph::ArcMap<signed_long_capacity_type> flowmap(og);
     
     create_initial_offset_graph(ex_flow, node_ref, arc_ref_forward, arc_ref_backward, max_supply, og, upper, cost, supply, id);
     
@@ -136,9 +140,9 @@ void mincost_flow_base::compute_flow(int id) {
 
 }
 
-capacity_type mincost_flow_base::find_exogenous_flow(ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow_map, int id) {
+capacity_type mincost_flow_base::find_exogenous_flow(ListDigraph::NodeMap<signed_long_capacity_type> &ex_flow_map, int id) {
     
-    capacity_type max_supply;
+    capacity_type max_supply = 0;
     for (ListDigraph::NodeIt n(g); n != INVALID; ++n) {
         
         capacity_type in = 0;
@@ -151,7 +155,7 @@ capacity_type mincost_flow_base::find_exogenous_flow(ListDigraph::NodeMap<unsign
             out += fs[a].series[id].capacity;
         }
         
-        unsigned_capacity_type ex_flow = in - out;
+        signed_long_capacity_type ex_flow = in - out;
         ex_flow_map[n] = ex_flow;
         
         if (ex_flow > 0) {
@@ -162,15 +166,15 @@ capacity_type mincost_flow_base::find_exogenous_flow(ListDigraph::NodeMap<unsign
 }
 
 void mincost_flow_base::create_initial_offset_graph(
-            ListDigraph::NodeMap<unsigned_capacity_type> &ex_flow,
+            ListDigraph::NodeMap<signed_long_capacity_type> &ex_flow,
             ListDigraph::NodeMap<ListDigraph::Node > &node_ref,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_forward,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_backward,
             capacity_type &max_supply,
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
-            ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
+            ListDigraph::ArcMap<signed_long_capacity_type> &cost,
+            ListDigraph::NodeMap<signed_long_capacity_type> &supply,
             int id) {
     
     // we need star supply nodes, create them first
@@ -253,7 +257,7 @@ void mincost_flow_base::create_initial_offset_graph(
 
 void mincost_flow_base::add_offset_edge(capacity_type capacity, capacity_type orig_cap, int exon_count,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference) {
     
     // this is the base implementation, so we just add on linear edgecosts
@@ -267,7 +271,7 @@ void mincost_flow_base::add_offset_edge(capacity_type capacity, capacity_type or
 
 void mincost_flow_base::add_offset_helper(capacity_type capacity,
         ListDigraph::Node &sn, ListDigraph::Node &tn,
-        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<unsigned_capacity_type> &cost,
+        ListDigraph &og, ListDigraph::ArcMap<capacity_type> &upper, ListDigraph::ArcMap<signed_long_capacity_type> &cost,
         std::deque< ListDigraph::Arc> &reference) {
     
         // helper get single arc with INF cap and no cost
@@ -284,9 +288,9 @@ bool mincost_flow_base::modify_repeat(
             capacity_type &max_supply,
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
-            ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap) {
+            ListDigraph::ArcMap<signed_long_capacity_type> &cost,
+            ListDigraph::NodeMap<signed_long_capacity_type> &supply,
+            ListDigraph::ArcMap<signed_long_capacity_type> &flowmap) {
     
     return false;
 }
@@ -294,14 +298,14 @@ bool mincost_flow_base::modify_repeat(
 void mincost_flow_base::push_mincost_flow(
             ListDigraph &og,
             ListDigraph::ArcMap<capacity_type> &upper,
-            ListDigraph::ArcMap<unsigned_capacity_type> &cost,
-            ListDigraph::NodeMap<unsigned_capacity_type> &supply,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap) {
+            ListDigraph::ArcMap<signed_long_capacity_type> &cost,
+            ListDigraph::NodeMap<signed_long_capacity_type> &supply,
+            ListDigraph::ArcMap<signed_long_capacity_type> &flowmap) {
     
-    NetworkSimplex<ListDigraph, unsigned_capacity_type, unsigned_capacity_type> ns(og);
+    NetworkSimplex<ListDigraph, signed_long_capacity_type, signed_long_capacity_type> ns(og);
     ns.upperMap(upper).costMap(cost);
     ns.supplyMap(supply);
-    ns.run(NetworkSimplex<ListDigraph, unsigned_capacity_type, unsigned_capacity_type>:: BLOCK_SEARCH);
+    ns.run(NetworkSimplex<ListDigraph, signed_long_capacity_type, signed_long_capacity_type>:: BLOCK_SEARCH);
     
 //    CostScaling<ListDigraph, unsigned_capacity_type> ns(og);
 //    ns.upperMap(upper).costMap(cost);
@@ -315,7 +319,7 @@ void mincost_flow_base::transform_flow_to_orig(ListDigraph::NodeMap<ListDigraph:
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_forward,
             ListDigraph::ArcMap<std::deque< ListDigraph::Arc> > &arc_ref_backward,
             ListDigraph &og,
-            ListDigraph::ArcMap<unsigned_capacity_type> &flowmap, int id) {
+            ListDigraph::ArcMap<signed_long_capacity_type> &flowmap, int id) {
     
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
         fs[a].series[id].flow = fs[a].series[id].capacity;

@@ -17,7 +17,7 @@ bam_guided_reader::~bam_guided_reader() {
 }
 
 
-void bam_guided_reader::read_chromosome(std::string file_name, std::string chrom_name, const unsigned int input_prefix, bool last_file) {
+void bam_guided_reader::read_chromosome(std::vector<std::string> file, std::string chrom_name) {
     
 
     // at this point we needs to fill in our info from gff_reader before we call the original function without guiding
@@ -74,5 +74,5 @@ void bam_guided_reader::read_chromosome(std::string file_name, std::string chrom
         #endif
     }
     // call original function
-    bam_reader::read_chromosome(file_name, chrom_name, input_prefix, last_file);
+    bam_reader::read_chromosome(file, chrom_name);
 }

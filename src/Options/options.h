@@ -12,6 +12,7 @@
 #include <vector>
 #include <boost/cstdint.hpp>
 #include <sys/stat.h>
+#include <map>
 
 class options{
     
@@ -44,7 +45,14 @@ private:
     std::vector<std::string> bam_files;             
     std::string gtf_file = "";                      
     
-    bool parse_heuristic = true;        
+    int pool = 1;
+    
+    std::map<unsigned int, unsigned int> input_to_id;
+    //std::map< unsigned int, std::vector<unsigned int> > group_to_inputs;
+    bool grouped = false;
+    
+    bool parse_heuristic = true; 
+    bool compute_all_singles = false;
     bool print_graphs = false;           
     bool debug = false; 
     int parallel_chromosomes;
@@ -134,6 +142,21 @@ public:
     std::string& get_gtf_file() {
         return gtf_file;
     }
+
+    unsigned int get_pooling() {
+        return pool;
+    }
+    
+    bool is_grouped() {
+        return grouped;
+    }
+    
+    std::map<unsigned int, unsigned int>&  get_input_to_id() {
+        return input_to_id;
+    }
+    //std::map< unsigned int, std::vector<unsigned int> >& get_group_to_inputs(){
+    //    return group_to_inputs;
+    //}
     
     unsigned int get_max_pos_extend() {
         return max_pos_extend;
@@ -177,6 +200,10 @@ public:
 
     bool is_parse_heuristic() {
         return parse_heuristic;
+    }
+    
+    bool is_compute_all_singles() {
+        return compute_all_singles;
     }
     
     int get_max_enumerated_paths() {

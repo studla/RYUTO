@@ -25,23 +25,28 @@ public:
 
     virtual ~read_collection();
     
-    bool add_read(rpos ll, rpos rl, rpos length);
-    void add_id(std::string &id);
     void flag_id(std::string &id);
     void clean_flagged_ids();
     
     raw_atom* parent;
     
-    lazy<greader_list<std::string> > open_ids; // these are included in count
-    paired_map<read_collection*, rcount > paired; // not directly registering as paired count as target in other atom!
+    lazy<gmap<int, greader_list<std::string> > > open_ids; // these are included in count
     
-    rcount count;
-    rcount paired_count;
+    struct raw_count {
+        
+        raw_count() : count(0), paired_count(0) {};
+        
+        rcount count;
+        rcount paired_count;
+        lazy<std::deque<std::pair<rpos, rpos> > > holes; // these appear within paired joines that have a gap between paired reads
+        paired_map<read_collection*, rcount > paired; // not directly registering as paired count as target in other atom!
+        
+    };
+    
+    lazy<gmap<int, raw_count > > counts;
     
     rpos left_limit, right_limit;
     bool length_filtered;
-    
-    lazy<std::deque<std::pair<rpos, rpos> > > holes; // these appear within paired joines that have a gap between paired reads
     
 private:
 

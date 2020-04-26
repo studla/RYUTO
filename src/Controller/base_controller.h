@@ -33,6 +33,7 @@ private:
     void print_connected_region( pre_graph* graph, exon_meta* meta);
     
     bool create_path( mode_t mode, std::string& path);
+    std::string getFileName(std::string filePath, bool withExtension = true, char seperator = '/');
 };
 
 #endif	/* BASE_CONTROLLER_H */

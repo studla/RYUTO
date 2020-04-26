@@ -11,18 +11,18 @@
 #include "interval.h"
 #include "raw_atom.h"
 
-rread::rread() : count(1), id_set(false), atom(NULL), left_limit(0), right_limit(0), length(0), block(false) {
+rread::rread() : global_count(0), id_set(false), atom(NULL), left_limit(0), right_limit(0), length(0), block(false) {
 }
 
-rread::rread(const std::string &id) :count(1), id_set(true), atom(NULL), left_limit(0), right_limit(0), length(0), block(false) {
-    ids.ref().push_back(id);
+rread::rread(const std::string &id, int index) : global_count(0), id_set(true), atom(NULL), left_limit(0), right_limit(0), length(0), block(false) {
+    ids.ref()[index].push_back(id);
 }
 
 //rread::rread(rread* r) : ids(r->ids), count(r->count), id_set(r->id_set), atom(r->atom), left_limit(r->left_limit), right_limit(r->right_limit), length(r->length) {
 //    
 //}
 
-rread::rread(const rread& r) : ids(r.ids), count(r.count), id_set(r.id_set), atom(r.atom), left_limit(r.left_limit), right_limit(r.right_limit), length(r.length), block(r.block) {
+rread::rread(const rread& r) : ids(r.ids), global_count(r.global_count), count(r.count), id_set(r.id_set), atom(r.atom), left_limit(r.left_limit), right_limit(r.right_limit), length(r.length), block(r.block) {
     
 }
 
@@ -33,8 +33,13 @@ rread::~rread() {
     
 }
 
-void rread::add_id(std::string &s) {
-    ids.ref().push_back(s);
+void rread::add_count(int index) {
+    count[index]++;
+    global_count++;
+}
+
+void rread::add_id(std::string &s, int index) {
+    ids.ref()[index].push_back(s);
     id_set = true;
 }
 

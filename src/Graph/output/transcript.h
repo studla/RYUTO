@@ -21,6 +21,7 @@ public:
     
     void print(std::ostream &os);
     void print_gtf_entry(std::ostream &os, std::string &gene_id, unsigned int trans_id, int main_input_id);
+    void print_count_matrix_entry(std::ostream &os, std::string &gene_id, unsigned int trans_id, int main_input_id, std::set<int> &ids);
     
     void finalize_borders(exon_meta* meta);
     
@@ -42,13 +43,17 @@ public:
     unsigned int cycle_id_out;
     
     bool guided;
+    bool guide_grouped;
+    bool ignore_guide_gene;
     std::string guide_reference;
-    
+    std::string guide_gene;
+
     // finalized values
     std::deque<std::pair<rpos, rpos> > exons;
     rpos length;
     std::string chromosome;
     std::string strand;
+    unsigned int avrg_read_length;
     
 private:
     

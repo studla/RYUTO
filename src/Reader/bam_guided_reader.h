@@ -17,7 +17,7 @@ public:
 
     virtual ~bam_guided_reader();
     
-    virtual void read_chromosome(std::string file, std::string chromosome, const unsigned int input_prefix, bool last_file);
+    virtual void read_chromosome(std::vector<std::string> file, std::string chromosome);
     
 private:
     

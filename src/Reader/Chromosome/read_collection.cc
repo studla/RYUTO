@@ -7,12 +7,12 @@
 
 #include "read_collection.h"
 
-read_collection::read_collection(rpos ll, rpos rl, bool length_filtered, raw_atom* parent ) : parent(parent), count(0), paired_count(0), left_limit(ll), right_limit(rl), length_filtered(length_filtered) { 
+read_collection::read_collection(rpos ll, rpos rl, bool length_filtered, raw_atom* parent ) : parent(parent), left_limit(ll), right_limit(rl), length_filtered(length_filtered) { 
     
 }
 
 
-read_collection::read_collection(rpos ll, rpos rl, rpos length, raw_atom* parent ) : parent(parent), count(0), paired_count(0), left_limit(ll), right_limit(rl) {
+read_collection::read_collection(rpos ll, rpos rl, rpos length, raw_atom* parent ) : parent(parent), left_limit(ll), right_limit(rl) {
     
     length_filtered = options::Instance()->is_min_readlength_set();
     
@@ -25,25 +25,6 @@ read_collection::read_collection(rpos ll, rpos rl, rpos length, raw_atom* parent
 read_collection::~read_collection() {
 }
 
-
-bool read_collection::add_read(rpos ll, rpos rl, rpos length) {
-    if (ll != left_limit || rl != right_limit) {
-        return false;
-    }
-    
-    ++count;
-    if (options::Instance()->is_min_readlength_set() && length > options::Instance()->get_min_readlength()) {
-        length_filtered = false;
-    }
-    
-    return true;
-}
-
-void read_collection::add_id(std::string &id) {
-    open_ids.ref().push_back(id);
-}
-
-
 // string MUST be from within list!
 void read_collection::flag_id(std::string &id) {
     #ifdef ALLOW_DEBUG
@@ -55,11 +36,13 @@ void read_collection::flag_id(std::string &id) {
 }
 
 void read_collection::clean_flagged_ids() {
-    for (greader_list<std::string>::iterator i_it = open_ids.ref().begin(); i_it != open_ids.ref().end(); ) {
-        if (*i_it == "") {
-            i_it = open_ids.ref().erase(i_it);
-        } else {
-            ++i_it;
+    for (gmap<int, greader_list<std::string> >::iterator oi_it = open_ids.ref().begin(); oi_it != open_ids.ref().end(); oi_it++) {
+        for (greader_list<std::string>::iterator i_it = oi_it->second.begin(); i_it != oi_it->second.end(); ) {
+            if (*i_it == "") {
+                i_it = oi_it->second.erase(i_it);
+            } else {
+                ++i_it;
+            }
         }
     }
 }

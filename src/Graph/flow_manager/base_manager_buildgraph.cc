@@ -2682,9 +2682,9 @@ void base_manager::create_region(unsigned int i, rcount basevalue, std::map< rpo
     
     while (li != lefts.end() || ( ri != rights.end() && ri->first + 1 <= end )) {
         
-        logger::Instance()->debug("Value: " + std::to_string(value) + "\n");
-        logger::Instance()->debug("STEP: " + std::to_string(li->first) + "-" +std::to_string(li->second) + " " + std::to_string(ri->first) + "-" +std::to_string(ri->second) + "\n");
-        
+//        logger::Instance()->debug("Value: " + std::to_string(value) + "\n");
+//        logger::Instance()->debug("STEP: " + std::to_string(li->first) + "-" +std::to_string(li->second) + " " + std::to_string(ri->first) + "-" +std::to_string(ri->second) + "\n");
+//        
         pre_value = value;
         pre_pos = pos;
                 
@@ -2802,28 +2802,35 @@ void base_manager::create_region_from_node(unsigned int i, count_raw_node &node_
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Create Node Region " + std::to_string(i) + "\n");
     #endif
+    for ( std::set<int>::iterator iii = input_ids.begin(); iii !=  input_ids.end(); ++iii) {
+
+      gmap<int, count_raw_node::series_struct>::iterator ssi = node_counts.series.find(*iii);
+      region r;
+      r.total_length = meta->exons[i].right - meta->exons[i].left + 1;
+
+      if(ssi != node_counts.series.end()) {
     
-    for(gmap<int, count_raw_node::series_struct>::iterator ssi = node_counts.series.begin(); ssi != node_counts.series.end(); ++ssi) {
-    
-        region r;
-        r.total_length = meta->exons[i].right - meta->exons[i].left + 1;
-        create_region(i, ssi->second.total_rights, ssi->second.lefts, ssi->second.rights, r);
-        
-        fs.series[ssi->first].capacity = r.get_max();
-        fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 1.0f), r.total_length);
-        
-        fs.series[ssi->first].average_to_first_zero_from_left = r.get_average_to_first_zero_from_left();
-        fs.series[ssi->first].average_to_first_zero_from_right = r.get_average_to_first_zero_from_right();
-        fs.series[ssi->first].deviation = r.get_deviation();
-        fs.series[ssi->first].left = r.get_left();
-        fs.series[ssi->first].right = r.get_right();
-        fs.series[ssi->first].length = r.total_length;
-        fs.series[ssi->first].length_to_first_zero_left = r.get_length_to_first_zero_from_left();
-        fs.series[ssi->first].length_to_first_zero_right = r.get_length_to_first_zero_from_right();
-        fs.series[ssi->first].region_average = r.get_average();
-        fs.series[ssi->first].region_max = r.get_max();
-        fs.series[ssi->first].region_min = r.get_min();
-        fs.series[ssi->first].right = r.get_right();   
+		create_region(i, ssi->second.total_rights, ssi->second.lefts, ssi->second.rights, r);
+		
+		fs.series[ssi->first].capacity = std::max(r.get_max(), 1ul);
+		fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 1.0f), r.total_length);
+		
+		fs.series[ssi->first].average_to_first_zero_from_left = r.get_average_to_first_zero_from_left();
+		fs.series[ssi->first].average_to_first_zero_from_right = r.get_average_to_first_zero_from_right();
+		fs.series[ssi->first].deviation = r.get_deviation();
+		fs.series[ssi->first].left = r.get_left();
+		fs.series[ssi->first].right = r.get_right();
+		fs.series[ssi->first].length = r.total_length;
+		fs.series[ssi->first].length_to_first_zero_left = r.get_length_to_first_zero_from_left();
+		fs.series[ssi->first].length_to_first_zero_right = r.get_length_to_first_zero_from_right();
+		fs.series[ssi->first].region_average = r.get_average();
+		fs.series[ssi->first].region_max = r.get_max();
+		fs.series[ssi->first].region_min = r.get_min();
+		fs.series[ssi->first].right = r.get_right();   
+
+       } else {
+                fs.series[*iii].mean = capacity_mean(0, r.total_length); // leave rest unitialized
+       }
     }
     
     #ifdef ALLOW_DEBUG
@@ -2952,6 +2959,10 @@ void base_manager::add_single_exons() {
         float combined = 0;
         for (std::set<int>::iterator iii = input_ids.begin(); iii != input_ids.end(); ++iii) {
             int id = *iii;
+            
+            if (input_ids.size() > 1 && !options::Instance()->is_compute_all_singles() && id != -1) {
+                    continue;
+            }
             
             if (id == -1) {
                 continue;

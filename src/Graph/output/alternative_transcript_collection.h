@@ -29,8 +29,11 @@ public:
     void print(std::ostream &os);
     void print_gtf(std::ostream &os, std::string &gene_id);
     
+    void print_count_matrix(std::ostream &os, std::string &gene_id, std::set<int> &ids);
+    
     void finalize_borders(exon_meta* meta); 
     void filter_transcripts(int id);
+    void filter_transcripts(std::set<int> &ids);
     
     bool empty();
     
@@ -40,6 +43,10 @@ public:
     
 private:
 
+    void compute_region(std::list<std::pair<rpos, rpos> > &regions);
+    void vote(int id, graph_list<lazy<transcript> > &keep, std::list<std::pair<rpos, rpos> > &regions);
+    void multi_vote(std::set<int> &ids, graph_list<lazy<transcript> > &keep, std::list<std::pair<rpos, rpos> > &regions);
+    void filter_nested(int id, graph_list<lazy<transcript> > &keep);
 };
 
 #endif	/* ALTERNATIVE_TRANSCRIPT_COLLECTION_H */

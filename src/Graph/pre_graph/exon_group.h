@@ -39,6 +39,7 @@ public:
      
     bool reference_atom; // was this created as a reference atom
     std::string reference_name;
+    std::string reference_gene;
     
     bool backlink_fragment;
     

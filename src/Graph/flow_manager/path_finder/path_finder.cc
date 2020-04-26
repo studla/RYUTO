@@ -7,6 +7,7 @@
 
 #include "path_finder.h"
 #include "single_path_heuristic.h"
+#include "exhaustive_enum.h"
 #include "single_path_heuristic_evidence_length_penalty.h"
 #include "../base_manager.h"
 #include <unordered_map>
@@ -45,6 +46,28 @@ path_finder* path_finder::create_path_finder(ListDigraph& wc,
         std::set<int>& input_ids,
         std::map<int, alternative_transcript_collection>& transcripts,
         unsigned int size, exon_meta* meta) {
+    
+    
+   // unsigned int complexity = 1;
+   // for (ListDigraph::NodeIt n(wc); n != INVALID; ++n) {
+   //     if (n == t) {
+   //         continue;
+   //     }
+   //             
+   //     unsigned int count = 0;
+   //     for (ListDigraph::OutArcIt o(wc, n); o != INVALID; ++o) {
+   //         ++count;
+   //     }
+   //     if (count != 0) complexity = complexity * count;
+   //     if (complexity > 13) {
+   //         break;
+   //     }
+   // }
+    
+   // if (complexity < 13) {
+   //     logger::Instance()->info("Exhaustive " + std::to_string(complexity)+ "\n"); 
+   //     return new exhaustive_enum(wc, s, t, fc, ai, cni, kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts, size);
+   // }
     
     return new single_path_heuristic_evidence_length_penalty(wc, s, t, fc, ai, cni, kp, kbp, unsecurityArc, unsecurityId, input_ids, transcripts, size);
 
@@ -117,8 +140,8 @@ void path_finder::add_path_to_collection(std::deque<ListDigraph::Arc> &stack, al
         
         for (std::set<int>::iterator iii = input_ids.begin(); iii != input_ids.end(); ++iii) {
             int id = *iii;
-            if (fc[*a].get_flow(id) < cc.transcripts.back()->series[id].flow )  {
-                cc.transcripts.back()->series[id].flow = fc[*a].get_flow(id);
+            if (fs[*a].get_flow(id) < cc.transcripts.back()->series[id].flow )  {
+                cc.transcripts.back()->series[id].flow = fs[*a].get_flow(id);
             }
         }
     }
@@ -334,7 +357,8 @@ void path_finder::extract_guided_transcripts_linear_order(alternative_transcript
         if ( recursive_arc_backtracing(*transc, start_index, end_index, s, null_arc, path, false) ) {
            add_path_to_collection(path, results, wc, ai, fc, kp, unsecurityArc, unsecurityId, input_ids);
            results.transcripts.back()->guided = true;
-           results.transcripts.back()->guide_reference = (*eg_it)->reference_name;    
+           results.transcripts.back()->guide_reference = (*eg_it)->reference_name;
+           results.transcripts.back()->guide_gene = (*eg_it)->reference_gene;
         }
     }
     

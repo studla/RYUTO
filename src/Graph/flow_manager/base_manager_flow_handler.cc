@@ -20,12 +20,15 @@
 #include <coin/CoinHelperFunctions.hpp>
 #include <coin/CoinBuild.hpp>
 
+//#include <iostream>
+//#include <fstream>
+
 //void base_manager::extract_transcripts_from_flow(std::ostream &gs) {
 
 void base_manager::extract_transcripts_from_flow() {
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Extract Transcripts.\n");
+    logger::Instance()->debug("Extract Transcripts. " + std::to_string(input_count) + " \n");
     #endif
         
     if (meta->size == 1) { // TODO: REAL handling
@@ -35,6 +38,17 @@ void base_manager::extract_transcripts_from_flow() {
     #ifdef ALLOW_DEBUG
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
     #endif
+
+//    std::ofstream pre_denoise;
+//    pre_denoise.open ("pre_denoise.graphs", std::fstream::app);
+//    digraphWriter(g, pre_denoise)
+//            .arcMap("Identifier", ai)
+//            .arcMap("Flow/Capacity", fs)
+//            .node("Source", s)
+//            .node("Drain", t)
+//            .run();
+//    pre_denoise << "--" << std::endl;
+//    pre_denoise.close();
 
     // downsize neighbouring exon junctions, as they are overrepresented often
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
@@ -77,6 +91,67 @@ void base_manager::extract_transcripts_from_flow() {
             }
         }
     }  
+      
+    #ifdef ALLOW_DEBUG
+    print_graph_debug_copy(std::cout, g, fs, ai, s, t);
+    #endif
+    
+    for (ListDigraph::OutArcIt o(g,s); o != INVALID; ++o) {
+        
+        ListDigraph::OutArcIt pe(g, g.target(o));
+        
+        ListDigraph::InArcIt tmp_in(g, g.source(pe));
+        if (tmp_in == o ) { ++tmp_in;}
+        if (tmp_in != INVALID ) { 
+            continue;
+        }
+        
+        for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[pe].series.begin(); ssi != fs[pe].series.end(); ++ssi) { 
+
+            if (ssi->second.length == 0) {
+                continue; // skip fully uninitialized
+            }
+
+            float cap = ssi->second.average_to_first_zero_from_right;
+            cap = std::max(cap, 1.0f);
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Reset Source " + std::to_string(g.id(pe)) + " at "+ std::to_string(ssi->first) + " " + std::to_string(cap)+ "-"+ std::to_string(ssi->second.region_average) + ".\n");
+            #endif
+            
+            ssi->second.capacity = cap;
+            ssi->second.mean = capacity_mean(cap, ssi->second.length); // reset mean also
+        }
+           
+    }
+    
+    for (ListDigraph::InArcIt i(g,t); i != INVALID; ++i) {
+        
+        ListDigraph::InArcIt pe(g, g.source(i));
+        
+        ListDigraph::OutArcIt tmp_out(g, g.target(pe));
+        if (tmp_out == i ) { ++tmp_out;}
+        if (tmp_out != INVALID ) { 
+            continue;
+        }
+        
+        for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[pe].series.begin(); ssi != fs[pe].series.end(); ++ssi) { 
+            if (ssi->second.length == 0) {
+                continue; // skip fully uninitialized
+            }
+
+            float cap = ssi->second.average_to_first_zero_from_left;
+            cap = std::max(cap, 1.0f);
+            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Reset Drain " + std::to_string(g.id(pe)) + " at "+ std::to_string(ssi->first) + " " + std::to_string(cap)+ "-"+ std::to_string(ssi->second.region_average) + ".\n");
+            #endif
+            
+            ssi->second.capacity = cap;
+            ssi->second.mean = capacity_mean(cap, ssi->second.length); // reset mean also
+        }
+           
+    }
     
     // now combine means of all edges  
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
@@ -87,6 +162,14 @@ void base_manager::extract_transcripts_from_flow() {
             continue;
         }
         
+//        fs[a].combined_mean = capacity_mean();
+//        for(; ssi != fs[a].series.end(); ++ssi) {
+//            fs[a].combined_capacity += ssi->second.capacity;
+//            if (ssi->second.mean.mean > fs[a].combined_mean.mean) {
+//                fs[a].combined_mean = ssi->second.mean;
+//            }
+//        }       
+        
         fs[a].combined_mean = ssi->second.mean;
         fs[a].combined_capacity += ssi->second.capacity;
         unsigned int index = 2;
@@ -95,7 +178,10 @@ void base_manager::extract_transcripts_from_flow() {
             fs[a].combined_capacity += ssi->second.capacity;
             fs[a].combined_mean.sum_up(ssi->second.mean, index);
             ++index;
-        }
+        }       
+        
+        fs[a].combined_mean.scores.clear();
+        fs[a].combined_mean.scores.push_back(fs[a].combined_mean.mean);
     }
     
     #ifdef ALLOW_DEBUG
@@ -106,6 +192,17 @@ void base_manager::extract_transcripts_from_flow() {
    std::deque<std::deque<ListDigraph::Arc> > guided_paths;
    find_guide_sources_and_drains(guided_saves, guided_paths);
     
+   // Guide Stats
+   unsigned int total_edges = 0;
+   unsigned int guided_edges = 0;
+   for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+       total_edges++;
+       if(guided_saves[a]) {
+            guided_edges++;
+       }
+   }
+
+
    // this is a set of exons directly neighbouring other exons
    // we only mark those which are either filled introns or in between sources or drains
    ListDigraph::ArcMap<bool> consecutive_s_t(g); // inits as false
@@ -144,8 +241,8 @@ void base_manager::extract_transcripts_from_flow() {
     float low_mark = options::Instance()->get_low_edge_mark();
     remove_too_short_source_drain(guided_saves, marked_source, marked_drain, consecutive_s_t); 
     while (true) {
-        
-        remove_dead_ends(); 
+                
+        remove_dead_ends();         
         ListDigraph::ArcIt a(g);
         if(a == INVALID) {
             #ifdef ALLOW_DEBUG
@@ -153,6 +250,10 @@ void base_manager::extract_transcripts_from_flow() {
             #endif
             return;
         }
+        
+        #ifdef ALLOW_DEBUG
+        print_graph_debug_copy(std::cout, g, fs, ai, s, t);
+        #endif
         
         if (erase_low_boundary_st(guided_saves, marked_source, marked_drain, consecutive_s_t)) { //1
             continue;
@@ -170,7 +271,7 @@ void base_manager::extract_transcripts_from_flow() {
             continue;
         }
 
-        if (threshold_filter(guided_saves, marked_source, marked_drain, consecutive_s_t, low_mark)) { //5
+        if (threshold_filter(guided_saves, marked_source, marked_drain, consecutive_s_t, low_mark)) { //5 
             continue;
         }
         
@@ -192,19 +293,35 @@ void base_manager::extract_transcripts_from_flow() {
         logger::Instance()->debug("Denoise/Flow " + std::to_string(*idi) + ".\n"); 
         print_graph_debug_copy(std::cout, g, fs, ai, s, t);
         #endif
+
+        for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {  // we get rid of 0s in multi sets
+
+            if(fs[a].series[*idi].capacity == 0 && ai[a].edge_type != edge_types::HELPER) {
+                //logger::Instance()->debug("Correct " + std::to_string(g.id(a)) + " " + std::to_string(*idi) + ".\n");
+
+                fs[a].series[*idi].capacity = 1;
+                fs[a].series[*idi].mean = capacity_mean(1, std::max(fs[a].series[*idi].length, 1ul));
+            }
+        }
+        
         if (options::Instance()->is_graph_denoising()) {
 
             if (guided_paths.empty()) {
                 denoise_graph(guided_saves, marked_source, marked_drain, *idi);
             } else {
-                denoise_graph_guided(guided_paths, *idi);
+                bool double_denoise = (guided_edges *100 / total_edges) < 90;
+
+                if (double_denoise) { 
+                    denoise_graph(guided_saves, marked_source, marked_drain, *idi);
+                }
+                denoise_graph_guided(guided_paths, *idi, double_denoise);
             }
         }
-
-            #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Before Flow.\n");
-    print_graph_debug_copy(std::cout, g, fs, ai, s, t);
-    #endif
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Before Flow.\n");
+        print_graph_debug_copy(std::cout, g, fs, ai, s, t);
+        #endif
         
         finalize_flow_graph(*idi);
         compute_flow(*idi);
@@ -220,6 +337,17 @@ void base_manager::extract_transcripts_from_flow() {
         fs[a].combined_capacity = 0;        
     }
     
+//    std::ofstream post_denoise;
+//    post_denoise.open ("post_denoise.graphs", std::fstream::app);
+//    digraphWriter(g, post_denoise)
+//            .arcMap("Identifier", ai)
+//            .arcMap("Flow/Capacity", fs)
+//            .node("Source", s)
+//            .node("Drain", t)
+//            .run();
+//    post_denoise << "--" << std::endl;
+//    post_denoise.close();
+//    
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("After Flow.\n");
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
@@ -288,6 +416,17 @@ void base_manager::extract_transcripts_from_flow() {
     // this keeps flow rules intact
     while ( contract_composites(g, fs, ai, in_deg, out_deg) ); // of this runs too often we could make a top. sorting
 
+//    std::ofstream contracted;
+//    contracted.open ("contracted.graphs", std::fstream::app);
+//    digraphWriter(g, contracted)
+//            .arcMap("Identifier", ai)
+//            .arcMap("Flow/Capacity", fs)
+//            .node("Source", s)
+//            .node("Drain", t)
+//            .run();
+//    contracted << "--" << std::endl;
+//    contracted.close();
+//    return;
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Contracting done.\n");
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
@@ -321,6 +460,10 @@ void base_manager::extract_transcripts_from_flow() {
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
     #endif
     for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi) {
+        
+        if (input_ids.size() > 1 && !options::Instance()->is_compute_all_singles() && *idi != -1) {
+            continue;
+        }
         
         int guiding = *idi;
         
@@ -476,8 +619,12 @@ void base_manager::extract_transcripts_from_flow() {
 
 void base_manager::find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths) {
     
+        logger::Instance()->debug("Save Guide Arcset " +std::to_string(raw->guide_transcripts.size()) + " .\n");
+
     for (graph_list<exon_group *>::iterator eg_it = raw->guide_transcripts.begin(); eg_it != raw->guide_transcripts.end(); ++eg_it) {
         
+        logger::Instance()->debug("Attempt save Guide Arcset " + (*eg_it)->bin_mask.to_string() + ".\n");
+
         exon_edge * transc = &(*eg_it)->bin_mask;
         
         std::deque<ListDigraph::Arc> path;
@@ -856,7 +1003,7 @@ void base_manager::filter_introns(ListDigraph::ArcMap<bool> &guided_saves,
                                 logger::Instance()->debug("Test " + std::to_string(g.id(a)) + "\n");
                                 #endif  
                                 
-                                unsigned int vote_count = 0;
+                                unsigned int vote_count = input_count - fs[a].series.size();
                                 for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[a].series.begin(); ssi != fs[a].series.end(); ++ssi) {
                                     if (fs[search].series[ssi->first].capacity != 0 && ( (ssi->second.capacity < 45 && ssi->second.region_average *100 / fs[search].series[ssi->first].capacity < options::Instance()->get_intron_retention_threshold()) || (ssi->second.capacity <= 2) ) )
                                     {
@@ -898,7 +1045,7 @@ void base_manager::filter_introns(ListDigraph::ArcMap<bool> &guided_saves,
                             ListDigraph::InArcIt left_node(g, g.source(a));
                             ListDigraph::OutArcIt right_node(g, g.target(a));
 
-                            unsigned int vote_count = 0;
+                            unsigned int vote_count = input_count - fs[a].series.size();
                             for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[a].series.begin(); ssi != fs[a].series.end(); ++ssi) {
                                 if (fs[search].series[ssi->first].capacity != 0 && ( (ssi->second.capacity < 45 && ssi->second.region_average *100 / fs[search].series[ssi->first].capacity < options::Instance()->get_intron_retention_threshold()) || (ssi->second.capacity <= 2) ) )
                                 {
@@ -1067,7 +1214,7 @@ void base_manager::remove_too_short_source_drain(ListDigraph::ArcMap<bool> &guid
         logger::Instance()->debug("Test " + std::to_string(g.id(no)) + "\n");
         #endif
         
-        unsigned int vote_count = 0;
+        unsigned int vote_count = input_count - fs[no].series.size();
         for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[no].series.begin(); ssi != fs[no].series.end(); ++ssi) {
             if (ssi->second.length_to_first_zero_right <= 20 || ssi->second.region_average < 2) {
                 ++vote_count;
@@ -1097,7 +1244,7 @@ void base_manager::remove_too_short_source_drain(ListDigraph::ArcMap<bool> &guid
         logger::Instance()->debug("Test " + std::to_string(g.id(ni)) + "\n");
         #endif
         
-        unsigned int vote_count = 0;
+        unsigned int vote_count = input_count - fs[ni].series.size();;
         for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[ni].series.begin(); ssi != fs[ni].series.end(); ++ssi) {
             if (ssi->second.length_to_first_zero_left <= 20 || ssi->second.region_average < 2) {
                 ++vote_count;
@@ -1153,7 +1300,7 @@ bool base_manager::remove_small_low_st(ListDigraph::ArcMap<bool> &guided_saves, 
             logger::Instance()->debug("Test Arc " +  std::to_string(g.id(arc))  + " " + std::to_string(left_source) + " " + std::to_string(right_drain) + "\n");
             #endif
 
-            unsigned int vote_count = 0;
+            unsigned int vote_count = input_count - fs[arc].series.size();
             for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[arc].series.begin(); ssi != fs[arc].series.end(); ++ssi) {
                             
                 rpos length = ssi->second.length;
@@ -1263,7 +1410,7 @@ bool base_manager::erase_low_deviation_st(ListDigraph::ArcMap<bool> &guided_save
                 }
             }
                
-            unsigned int vote_count = 0;
+            unsigned int vote_count = input_count - fs[arc].series.size();
             for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[arc].series.begin(); ssi != fs[arc].series.end(); ++ssi) {
                 if (ssi->second.deviation <= 0.01) {
                     ++vote_count;
@@ -1355,10 +1502,12 @@ bool base_manager::erase_low_boundary_st(ListDigraph::ArcMap<bool> &guided_saves
             }
             
             unsigned int vote_count = 0;
-            for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[arc].series.begin(); ssi != fs[arc].series.end(); ++ssi) {
-                int id = ssi->first;
-                            
-                rcount we = ssi->second.capacity;
+            for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi) {
+                
+                gfmap<int, flow_series::series_struct>::iterator ssi = fs[arc].series.find(*idi);
+                
+                int id = *idi;
+
                 rcount left = 0;
                 for (std::deque<ListDigraph::Arc>::iterator ni = same_node[ai[node_left].edge_specifier.node_index].begin(); ni != same_node[ai[node_left].edge_specifier.node_index].end(); ++ni) {
                     left += fs[*ni].series[id].region_average;
@@ -1369,13 +1518,26 @@ bool base_manager::erase_low_boundary_st(ListDigraph::ArcMap<bool> &guided_saves
                     right += fs[*ni].series[id].region_average;
                 }
 
-                #ifdef ALLOW_DEBUG
-                logger::Instance()->debug("Test N Scallop " + std::to_string(g.id(arc)) + " : " + std::to_string(we) + " " + std::to_string(left) + " " + std::to_string(right) + " : " + std::to_string(meta->exons[ai[node_left].edge_specifier.node_index].right) + " " + std::to_string(meta->exons[ai[node_right].edge_specifier.node_index].left)  + ".\n");
-                #endif
+                if ( ssi != fs[arc].series.end() ) {
+                    
+                    rcount we = ssi->second.capacity;
+                    if ((out_degree == 1 && left>= 10.0 * we * we + 10.0) || (in_degree == 1 && right>= 10.0 * we * we + 10.0)) {
+                        ++vote_count;
+                    }
+                    
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("Test N Scallop " + std::to_string(g.id(arc)) + " : " + std::to_string(we) + " " + std::to_string(left) + " " + std::to_string(right) + " : " + std::to_string(meta->exons[ai[node_left].edge_specifier.node_index].right) + " " + std::to_string(meta->exons[ai[node_right].edge_specifier.node_index].left)  + ".\n");
+                    #endif
+                    
+                } else if ((out_degree == 1 && left>= 10.0) || (in_degree == 1 && right>= 10.0)) {
 
-                if ((out_degree == 1 && left>= 10.0 * we * we + 10.0) || (in_degree == 1 && right>= 10.0 * we * we + 10.0)) {
                     ++vote_count;
+                    
+                    #ifdef ALLOW_DEBUG
+                    logger::Instance()->debug("Test N Scallop " + std::to_string(g.id(arc)) + " empty vote.\n");
+                    #endif
                 }
+                
             }
             if (options::Instance()->vote(vote_count, input_count, options::delete_on::group_vote_high)) {
                 #ifdef ALLOW_DEBUG
@@ -1425,7 +1587,7 @@ bool base_manager::prune_small_junctions(ListDigraph::ArcMap<bool> &guided_saves
         
         if (ai[arc].edge_type == edge_types::NODE) {
             
-            std::map<int, unsigned int> vote_counts;
+            std::map<int, unsigned int> vote_counts; // if current has no coverage, no evidence for removal of other edges
             for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[arc].series.begin(); ssi != fs[arc].series.end(); ++ssi) {
                 int id = ssi->first;
                             
@@ -1556,7 +1718,7 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
 	logger::Instance()->debug("Test low Source " + std::to_string(g.id(no)) + ".\n");
         #endif
         
-        unsigned int vote_count = 0;
+        unsigned int vote_count = input_count - fs[no].series.size();
         for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[no].series.begin(); ssi != fs[no].series.end(); ++ssi) {
             int id = ssi->first;  
             if (ssi->second.average_to_first_zero_from_right <= low_mark || ssi->second.length <= 20 ) {
@@ -1564,6 +1726,9 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
                 ++vote_count;
             }
         }
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Vote Count S " + std::to_string(g.id(arc)) + " : " + std::to_string(vote_count) + "\n");
+        #endif
         if (options::Instance()->vote(vote_count, input_count, options::delete_on::group_vote_low)) {
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Mark Short Source " + std::to_string(g.id(arc)) + ".\n");
@@ -1573,6 +1738,9 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
             for (ListDigraph::OutArcIt no3(g, g.target(no)); no3 != INVALID; ++no3) {
                 kill_status[no3] = true;
                 filtered_sd[no3] = true;
+                #ifdef ALLOW_DEBUG
+	        logger::Instance()->debug("Mark " + std::to_string(g.id(no3)) + ".\n");
+                #endif
             } 
         }
     }
@@ -1592,7 +1760,7 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
         #ifdef ALLOW_DEBUG
 	logger::Instance()->debug("Test low Drain " + std::to_string(g.id(ni)) + ".\n");
         #endif
-        unsigned int vote_count = 0;
+        unsigned int vote_count = input_count - fs[ni].series.size();
         for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[ni].series.begin(); ssi != fs[ni].series.end(); ++ssi) {
             int id = ssi->first;  
             if (ssi->second.average_to_first_zero_from_left <= low_mark  || ssi->second.length <= 20 ) {
@@ -1600,6 +1768,9 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
                 ++vote_count;
             }
         }
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Vote Count D " + std::to_string(g.id(arc)) + " : " + std::to_string(vote_count) + "\n");
+        #endif
         if (options::Instance()->vote(vote_count, input_count, options::delete_on::group_vote_low)) {
             #ifdef ALLOW_DEBUG
 	    logger::Instance()->debug("Mark Short Drain " + std::to_string(g.id(arc)) + ".\n");
@@ -1608,19 +1779,24 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
             filtered_sd[ni] = true;
             for (ListDigraph::InArcIt ni3(g, g.source(ni)); ni3 != INVALID; ++ni3) {
                 kill_status[ni3] = true;
-                filtered_sd[ni] = true;
+                filtered_sd[ni3] = true;
+                #ifdef ALLOW_DEBUG
+	        logger::Instance()->debug("Mark " + std::to_string(g.id(ni3)) + ".\n");
+                #endif
             }  
         }
     }    
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
         if (ai[a].edge_type == edge_types::EXON) {
-            unsigned int vote_count = 0;
+            unsigned int vote_count = input_count - fs[a].series.size();
             for(gfmap<int, flow_series::series_struct>::iterator ssi = fs[a].series.begin(); ssi != fs[a].series.end(); ++ssi) {
                 if (ssi->second.capacity <= low_mark) {
                     ++vote_count;
                 }
             }
-            
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Vote Count E " + std::to_string(g.id(a)) + " : " + std::to_string(vote_count) + "\n");
+            #endif
             if (options::Instance()->vote(vote_count, input_count, options::delete_on::group_vote_high)) {
                 kill_status[a] = true;
                 #ifdef ALLOW_DEBUG
@@ -1684,8 +1860,10 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
                     }
                 }
             }
-        } 
-        kill_status[g.arcFromId(most_common_mapped(max_vote.begin(), max_vote.end()))] = false;
+        }
+        if ( !max_vote.empty() ) {
+            kill_status[g.arcFromId(most_common_mapped(max_vote.begin(), max_vote.end()))] = false;
+        }
     }
 
     // rescue mission!    
@@ -1756,6 +1934,7 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
             
             if (!has_in) {
                 std::deque<int> vote;
+                std::deque<int> secondary_vote;
                 for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi) {
                     bool has_max = false;
                     float max_count = 0;                
@@ -1774,10 +1953,16 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
                     }
                     for (std::deque<ListDigraph::Arc>::iterator it = max_arc_all.begin(); it != max_arc_all.end(); ++it) {
                         if (!filtered_sd[*it] || !has_non_sd_filtered_in || max_count_in[*idi] == max_count) { // arc is not low drain or source or only filtered ones exist
-                            vote.push_back(g.id(*it));
+                            if (max_count > 4) {
+                                vote.push_back(g.id(*it));
+                            }
+                            secondary_vote.push_back(g.id(*it));
                         }
                     }
                 }
+                if (vote.empty()) { // so all are below 4
+                    vote = secondary_vote;
+                } 
                 if (!vote.empty()) {
                     std::set<int> vr;
                     most_common_multi(vote.begin(), vote.end(), vr);
@@ -1794,6 +1979,7 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
 
             if (!has_out) {
                 std::deque<int> vote;
+                std::deque<int> secondary_vote;
                 for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi) {                
                     bool has_max = false;
                     float max_count = 0;                
@@ -1818,9 +2004,15 @@ bool base_manager::threshold_filter(ListDigraph::ArcMap<bool> &guided_saves, Lis
                     }
                     for (std::deque<ListDigraph::Arc>::iterator it = max_arc_all.begin(); it != max_arc_all.end(); ++it) {
                          if (!filtered_sd[*it] || !has_non_sd_filtered_out || max_count_out[*idi] == max_count) { // arc is not low drain or source or only filtered ones exist
-                             vote.push_back(g.id(*it));
+                             if (max_count > 4) {
+                                vote.push_back(g.id(*it));
+                            }
+                            secondary_vote.push_back(g.id(*it));
                          }
                     }
+                }
+                if (vote.empty()) { // so all are below 4 
+                    vote = secondary_vote;
                 }
                 if (!vote.empty()) {
                     std::set<int> vr;
@@ -2210,7 +2402,7 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
     }
 }
 
-void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id) {
+void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, bool double_denoise) {
     
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Graph Denoise Guided \n");
@@ -2222,12 +2414,13 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
     
     for (ListDigraph::NodeIt n(g); n != INVALID; ++n) {
         
-        bool helper = false;
-        
+        bool in_helper = false;
+        bool out_helper = false;
+		
         rcount in_push = 0;
         for (ListDigraph::InArcIt inpi(g, n); inpi != INVALID ;++inpi) {
             if (ai[inpi].edge_type == edge_types::HELPER) {
-                helper = true;
+                in_helper = true;
             }
             in_push += fs[inpi].series[id].capacity;
         }
@@ -2235,12 +2428,39 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
         rcount out_push = 0;
         for (ListDigraph::OutArcIt onpi(g, n); onpi != INVALID ;++onpi) {
             if (ai[onpi].edge_type == edge_types::HELPER) {
-                helper = true;
+                out_helper = true;
             }
             out_push += fs[onpi].series[id].capacity;
         }
-        if (helper || out_push == 0 || in_push == 0) {
-            ratios[n] = 1;
+
+    #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Graph Factor " + std::to_string(g.id(n)) + " : in " + std::to_string(in_push) + " out " + std::to_string(out_push)  + "\n");
+    #endif
+
+        if (out_push == 0 || in_push == 0) {
+			ratios[n] = 1;
+		} else if (in_helper || out_helper) {
+            // we use the exon borders to estimate how much is actually lost by the helpers
+            if (!double_denoise) {
+			    if (out_helper) {
+                    ListDigraph::InArcIt exon_arc(g, n); // there can only be one here as we are not compacted
+                    out_push = fs[exon_arc].series[id].right;
+                    if (out_push == 0) {
+                         out_push = 1;
+                    }
+                //    logger::Instance()->debug("Correct Helper Out " + std::to_string(out_push)  + "\n");
+
+			    } else {  // cannot be both
+                    ListDigraph::OutArcIt exon_arc(g, n); // there can only be one here as we are not compacted
+                    in_push = fs[exon_arc].series[id].left;
+                    if (in_push == 0) {
+                         in_push = 1;
+                    }
+                //    logger::Instance()->debug("Correct Helper In " + std::to_string(in_push)  + "\n");
+
+			    }
+            }
+            ratios[n] = out_push/float(in_push);
         } else {
             ratios[n] = out_push/float(in_push);
         }
@@ -2266,19 +2486,21 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
             way_factor = way_factor * fac;
             rcount local_limit = std::ceil(fs[*a_it].series[id].capacity * 1/way_factor);
             
-//            logger::Instance()->debug("Overshoot Test " + std::to_string(g.id(*a_it)) + " " + std::to_string(local_limit) + " " + std::to_string(fac) + " " + std::to_string(way_factor) + "\n");
+            logger::Instance()->debug("Cap " + std::to_string(g.id(*a_it)) + " " + std::to_string(fs[*a_it].series[id].capacity) + "\n");
+            logger::Instance()->debug("Overshoot Test " + std::to_string(g.id(*a_it)) + " " + std::to_string(local_limit) + " " + std::to_string(fac) + " " + std::to_string(way_factor) + "\n");
             if (local_limit < guide_cap || guide_cap == 0) {
                 guide_cap = local_limit ;
             }
         }
         
-//        logger::Instance()->debug("Guide Cap " + std::to_string(guide_cap) + "\n");
+        logger::Instance()->debug("Guide Cap " + std::to_string(guide_cap) + "\n");
         
         // set guide_increase in second and third run!
         rcount mean = 0;
         rcount guide_current = guide_cap;
         a_it = g_it->begin();
         mean += guide_current;
+        //rcount max = guide_current;
         
         if (ai[*a_it].edge_type == edge_types::HELPER) {
             guided_percentage[*a_it] = 1;
@@ -2296,8 +2518,11 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
             float fac = ratios[g.source(*a_it)];
             guide_current = std::ceil(guide_current * fac);
             mean += guide_current;
+            //if (guide_current > max) {
+            //    max = guide_current;
+            //}
             
-//            logger::Instance()->debug("Current " + std::to_string(g.id(*a_it)) + " " + std::to_string(guide_current) + " " + std::to_string(fac) + "\n");
+            logger::Instance()->debug("Current " + std::to_string(g.id(*a_it)) + " " + std::to_string(guide_current) + " " + std::to_string(fac) + "\n");
             
             if (ai[*a_it].edge_type == edge_types::HELPER) {
                 guided_percentage[*a_it] = 1;
@@ -2311,14 +2536,14 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
         }
         mean = mean / (g_it->size() - 1);
         
-//        logger::Instance()->debug("Guide Mean " + std::to_string(mean) + "\n");
+        //logger::Instance()->debug("Guide Mean " + std::to_string(mean) +  "\n");
         
         for (std::deque<ListDigraph::Arc>::iterator f_it = g_it->begin(); f_it != g_it->end(); ++f_it) {
             guided_capacity[*f_it] += mean;
         }
     }
     
-    float truth_limit = 1 - options::Instance()->get_guide_trust_level();
+    float truth_limit = 0.8; //1 - options::Instance()->get_guide_trust_level();
     
     for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
         
@@ -2329,7 +2554,7 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
         if (guided_percentage[a] >= truth_limit) {
             fs[a].series[id].capacity = guided_capacity[a];
         } else if (guided_percentage[a] > 0) {
-             fs[a].series[id].capacity = guided_capacity[a] * 1/guided_percentage[a];
+            fs[a].series[id].capacity = guided_capacity[a]  + fs[a].series[id].capacity * ( 1 - guided_percentage[a] );
         }
     } 
 }
@@ -2509,7 +2734,7 @@ void base_manager::follow_contraction(ListDigraph& gc,
         #ifdef ALLOW_DEBUG
             logger::Instance()->debug("iterator " + aic[a].edge_specifier.to_string() + " " +  std::to_string(g.id(a)) +  " ; "+ std::to_string(g.id(next)) + "\n");
             for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi) {
-                logger::Instance()->debug("means " + std::to_string(path_fs.get_mean(*idi).mean) + " " +  std::to_string(path_fs.get_mean(*idi).weight) +  " ; "+ std::to_string(fsc[a].get_flow(*idi)) + " " + std::to_string(path_fs.get_flow(*idi))+ "\n");
+                logger::Instance()->debug("means at id " + std::to_string(*idi) + ": " + std::to_string(path_fs.get_mean(*idi).mean) + " " +  std::to_string(path_fs.get_mean(*idi).weight) +  " ; "+ std::to_string(fsc[a].get_flow(*idi)) + " " + std::to_string(path_fs.get_flow(*idi))+ "\n");
             }
         #endif
         
@@ -2519,9 +2744,14 @@ void base_manager::follow_contraction(ListDigraph& gc,
             capacity_type path_flow = next_path_fs.get_flow(*idi);
             capacity_type flow = fsc[a].get_flow(*idi);
             
+            logger::Instance()->debug("FLOW " + std::to_string(*idi) +  ": "+ std::to_string(path_flow) +  " "+ std::to_string(flow) + "\n");
+            
             if (flow >= path_flow) { // this means we first enter with a second incoming edge !
                 capacity_mean new_mean = fsc[a].get_mean(*idi);
                 new_mean.reduce(path_flow/(float) flow);
+                
+                logger::Instance()->debug("NM " + std::to_string(new_mean.mean) +  " "+ std::to_string(new_mean.weight) + "\n");
+                
                 next_path_fs.get_mean(*idi).update(new_mean); 
 
             } else { //one to many
@@ -5682,7 +5912,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
                 float ratio = (float) group_connections[id][gci->first] / (float) weight;
                 fsc[new_arc].get_mean(id).hidden_score = score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
-                fsc[new_arc].get_mean(id).mean = mean * ratio;
+                fsc[new_arc].get_mean(id).assign_mean(mean * ratio);
             }
 
         } else if (rev_in_groups_ev[lg] || rev_out_groups_ev[rg]) {
@@ -5814,7 +6044,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
                 float ratio = (float) ci.evidenced_flow / (float) ci.group_flow;
                 fsc[new_arc].get_mean(id).hidden_score = ci.score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
-                fsc[new_arc].get_mean(id).mean = ci.mean * ratio;
+                fsc[new_arc].get_mean(id).assign_mean(ci.mean * ratio);
             }
         }
     }
@@ -5867,7 +6097,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
                 float ratio = (float) ci.evidenced_flow / (float) ci.group_flow;
                 fsc[new_arc].get_mean(id).hidden_score = ci.score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
-                fsc[new_arc].get_mean(id).mean = ci.mean * ratio;
+                fsc[new_arc].get_mean(id).assign_mean( ci.mean * ratio);
             }
         }
     }
@@ -6552,7 +6782,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 float ratio = (float) caps[id] / (float) weight;
                 fsc[new_arc].get_mean(id).hidden_score = score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
-                fsc[new_arc].get_mean(id).mean = mean * ratio;
+                fsc[new_arc].get_mean(id).assign_mean(mean * ratio);
             }
             
         } else if (rev_in_groups_ev[lg] || rev_out_groups_ev[rg]) {
@@ -6674,7 +6904,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 float ratio = (float) ci.evidenced_flow / (float) ci.group_flow;
                 fsc[new_arc].get_mean(id).hidden_score = ci.score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
-                fsc[new_arc].get_mean(id).mean = ci.mean * ratio;
+                fsc[new_arc].get_mean(id).assign_mean(ci.mean * ratio);
             }
         }
     }
@@ -6731,7 +6961,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 float ratio = (float) ci.evidenced_flow / (float) ci.group_flow;
                 fsc[new_arc].get_mean(id).hidden_score = ci.score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
-                fsc[new_arc].get_mean(id).mean = ci.mean * ratio;
+                fsc[new_arc].get_mean(id).assign_mean(ci.mean * ratio);
             }
         }
     }

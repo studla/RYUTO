@@ -35,6 +35,7 @@ private:
             };
             
             std::string name;
+            std::string gene;
             rpos start, end;
             // id in the flow graph 
             // start at 0 and keep it tight!
@@ -45,7 +46,7 @@ private:
     };
     
     void parseAttribute(std::string &all_attributes, std::vector<std::string> &transcript_ids, const std::string& attribute);
-    void insertExon(std::deque<transcript_info> &trans, std::unordered_map<std::string, transcript_info *> &id_to_trans, std::vector<std::string> &transcript_ids, rpos &exon_start, rpos &exon_end);
+    void insertExon(std::deque<transcript_info> &trans, std::unordered_map<std::string, transcript_info *> &id_to_trans, std::vector<std::string> &transcript_ids, std::vector<std::string> &gene_ids, rpos &exon_start, rpos &exon_end);
     void add_all_into_chromosome(std::deque<transcript_info> &trans, chromosome *chrom);
     void add_one_into_chromosome(std::deque<transcript_info *> &region, chromosome *chrom, rpos start, rpos end);
     

@@ -72,13 +72,15 @@ void gffReader::initialize_chromosome(std::string chrom_name, chromosome *chrom_
         
         bool minus_strand = false;
         std::vector<std::string> transcript_ids;
+        std::vector<std::string> gene_ids;
         rpos exon_start, exon_end;
         
         // now it depends on format
         if (gff3) {   // gff 3 format
-            parseAttribute(tokens[8], transcript_ids, "Parent");
+            parseAttribute(tokens[8], transcript_ids, "Parent"); // TODO add Gene ID support
         } else { // gtf or gff 2
             parseAttribute(tokens[8], transcript_ids, "transcript_id"); 
+            parseAttribute(tokens[8], gene_ids, "gene_id"); 
         }
         
         if ( tokens[6] == "-") {
@@ -96,9 +98,9 @@ void gffReader::initialize_chromosome(std::string chrom_name, chromosome *chrom_
         }
         
         if (options::Instance()->is_stranded() && minus_strand) {
-            insertExon(rev_trans, id_to_trans_rev, transcript_ids, exon_start, exon_end);
+            insertExon(rev_trans, id_to_trans_rev, transcript_ids, gene_ids, exon_start, exon_end);
         } else {
-            insertExon(fwd_trans, id_to_trans_fwd, transcript_ids, exon_start, exon_end);
+            insertExon(fwd_trans, id_to_trans_fwd, transcript_ids, gene_ids, exon_start, exon_end);
         }
         
     }  
@@ -145,9 +147,10 @@ void gffReader::parseAttribute(std::string &all_attributes, std::vector<std::str
     
 }
 
-void gffReader::insertExon(std::deque<transcript_info> &trans, std::unordered_map<std::string, transcript_info *> &id_to_trans, std::vector<std::string> &transcript_ids, rpos &exon_start, rpos &exon_end) {
+void gffReader::insertExon(std::deque<transcript_info> &trans, std::unordered_map<std::string, transcript_info *> &id_to_trans, std::vector<std::string> &transcript_ids, std::vector<std::string> &gene_ids, rpos &exon_start, rpos &exon_end) {
     
-    for (std::vector<std::string>::iterator t_id_it = transcript_ids.begin(); t_id_it != transcript_ids.end(); ++t_id_it) { 
+    std::vector<std::string>::iterator g_id_it = gene_ids.begin();
+    for (std::vector<std::string>::iterator t_id_it = transcript_ids.begin(); t_id_it != transcript_ids.end(); ++t_id_it, ++g_id_it) { 
         
         #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Insert Exon " + *t_id_it + " " + std::to_string(exon_start) + " - "+ std::to_string(exon_end) +" .\n");
@@ -165,6 +168,7 @@ void gffReader::insertExon(std::deque<transcript_info> &trans, std::unordered_ma
             info->start = exon_start;
             info->end = exon_end;
             info->name = *t_id_it;
+            info->gene = *g_id_it;
         } else {
             // we have found it
             info = t->second;
@@ -253,6 +257,7 @@ void gffReader::add_one_into_chromosome(std::deque<transcript_info *> &region, c
     con->atoms->insert(at);
     at->reference_atom = true;
     at->reference_name = (*region.begin())->name;
+    at->reference_gene = (*region.begin())->gene;
 
     // loop over exons and create the exon structure 
     std::deque<transcript_info *>::iterator r_it = region.begin();
@@ -288,7 +293,8 @@ void gffReader::add_one_into_chromosome(std::deque<transcript_info *> &region, c
         raw_atom * at = &chrom->atoms.back();
         at->reference_atom = true;
         at->reference_name = (*r_it)->name;
-        
+        at->reference_gene = (*r_it)->gene;
+
         // we need to do this on tandem;
         greader_list<exon* >::iterator fe_it = con->fossil_exons->begin();
         for (std::set<std::pair<rpos, rpos> >::iterator e_it = (*r_it)->exons.begin(); e_it != (*r_it)->exons.end(); ++e_it ) {

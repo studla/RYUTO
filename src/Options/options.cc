@@ -11,6 +11,8 @@
 #include <iostream>
 #include <boost/program_options.hpp>
 
+#include <sstream>
+
 namespace po = boost::program_options;
 
 options* options::instance = NULL;
@@ -38,11 +40,13 @@ void options::init(int argc, char **argv) {
     basic_o.add_options()
     ("gtf-guide,g", po::value<std::string>(), "Path to a gtf/gff file containing reference genes. (default: none)")
     ("guide-trustlevel", po::value<unsigned int>(), "Level of trust in the given guides. 0 no trust. 100 maximal trust. Abstract non-linear variable! (default: 60)")
+    ("pool,w", po::value<unsigned int>(), "Number of consecutive inputs to merge internally in groups.")
+    //("diff-exp-groups,e", po::value<std::string>(), "Input grouping for differential expression by index of inputs, e.g. '1-2;3-4'; or '1;2;' .")
     ("nc", po::value<unsigned int>(), "Number of chromosomes processed in parallel. (# of threads = nc * ng; default: 1)")
     ("ng", po::value<unsigned int>(), "Number of graph per chromosome processed in parallel. (# of threads = nc * ng; default: 1)")
     ("out-dir,o", po::value<std::string>(), "The output directory for all data. (default: ./)")
     ("library-type,l", po::value<std::string>(), "fr-unstranded, fr-firststrand, fr-secondstrand, ff-unstranded, ff-firststrand, or ff-secondstrand according to TopHat and Cufflinks definitions. (default: fr-unstranded)")
-    ("stranded,s", "Add this option if all datasets are stranded (and XS tag is present). (default: none)")
+    ("unstranded,s", "Add this option to ignore strand information and call everything on + strand. (default: none)")
     ("base-coverage-filter,c", po::value<float>(), "Minimum average coverage for features to be filtered. Sets low-edge-mark, mean-filter, and score-filter (default: 4.0)")
     #ifdef ALLOW_DEBUG
     ("debug,d", "Show debug information.")
@@ -53,6 +57,7 @@ void options::init(int argc, char **argv) {
     po::options_description general_o("General options");
     general_o.add_options()
     ("no-parse-heuristic", "If several input files are used, use this to disable the heuristic to merge fragments. Increases needed RAM. (default: use heuristic)")
+    ("compute-singles", "If several input files are used, use this to compute transcripts for all individual transcripts. (default: only joined output)")
     //("print-graphs", "Produce files with intermediate graphs of all genes for each chromosome. (default: no)")
     ;
     
@@ -129,7 +134,7 @@ void options::init(int argc, char **argv) {
         std::cout << graph_filter_o << std::endl;
         std::cout << filter_o << std::endl;
         std::cout << tech_o << std::endl;
-        std::cout << "(Version 1.3m)" << std::endl;
+        std::cout << "(Version 1.5m)" << std::endl;
         std::exit(0);
     }
     
@@ -174,6 +179,64 @@ void options::init(int argc, char **argv) {
         gtf_file = "";
     }
     
+    if (vm.count("pool")) {
+         pool = vm["pool"].as<unsigned int>();
+    }
+    
+    /*if (vm.count("diff-exp-groups")) {
+        
+         // assume grouping is correct
+        unsigned int group_counter = 1;
+        unsigned int id_counter = 0;
+        
+        std::string dfs = vm["diff-exp-groups"].as<std::string>();
+        std::stringstream ss(dfs);
+        std::string item;
+        while (std::getline(ss, item, ';'))
+        {
+            if (item.empty()) {
+                continue;
+            }
+            
+            std::vector<unsigned int> new_group;
+            
+            std::size_t found = item.find("-");
+            if (found == std::string::npos) {  // no range, assume single index
+                int i = std::stoi(item);
+                new_group.push_back(i);
+                input_to_id[i-1] = id_counter;
+                id_counter++;
+            } else {
+                int is = std::stoi(item.substr(0, found-1));
+                int ie = std::stoi(item.substr(found+1));
+                for ( unsigned int i = is; i <= ie ; ++i) {
+                    new_group.push_back(i);
+                    input_to_id[i-1] = id_counter + (i - is) / pool;
+                }
+                id_counter += (ie - is) / pool;
+            }
+            group_to_inputs[group_counter] = new_group;
+            group_counter++;
+        }
+        
+        for(unsigned int i = 0; i< bam_files.size(); ++i) {
+            if ( input_to_id.find(i) == input_to_id.end()){
+                // id was not found in grouping, kill this!
+                logger::Instance()->error("Inputs and Groups do not match.");
+                std::exit(1);
+            }
+        }
+        
+        grouped = true;
+    } else { */
+        grouped = false;
+        
+        for(unsigned int i = 0; i< bam_files.size(); ++i) {
+            input_to_id[i] = i / pool;
+        }
+        
+   // }
+    
     if (vm.count("nc")){
         parallel_chromosomes = vm["nc"].as<unsigned int>();
         
@@ -203,15 +266,15 @@ void options::init(int argc, char **argv) {
         outdir = "./";
     }
     
-    if(vm.count("stranded")) {
-        stranded = true;
+    if(vm.count("unstranded")) {
+        stranded = false;
     }
     
     if (vm.count("library-type")) {
         std::string type = vm["library-type"].as<std::string>();
         
         if (type == "fr-unstranded") {
-            stranded = false;
+            stranded = true;
             strand_type = unknown;
         } else if (type == "fr-firststrand") {
             stranded = true;
@@ -220,7 +283,7 @@ void options::init(int argc, char **argv) {
             stranded = true;
             strand_type = FR;
         } else if (type == "ff-unstranded") {   
-            stranded = false;
+            stranded = true;
             strand_type = FF;
         } else if (type == "ff-firststrand") {
             stranded = true;
@@ -251,6 +314,10 @@ void options::init(int argc, char **argv) {
     
     if (vm.count("no-parse-heuristic")) {
          parse_heuristic = false;
+    }
+    
+    if (vm.count("compute-singles")) {
+         compute_all_singles = true;
     }
     
     if(vm.count("pos-merge")){
