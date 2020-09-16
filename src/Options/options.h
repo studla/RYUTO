@@ -69,7 +69,7 @@ private:
     unsigned int maximal_intron_size = 1000000;                
     
     // Graph Building and flow options
-    float guide_trust_level = 0.6;
+    float guide_trust_level = 0.2;
     bool graph_denoising = true;                                
     bool keep_introns = false;                                  
     unsigned int intron_retention_threshold = 30; // 30% of overlap to both sides!
@@ -117,6 +117,8 @@ private:
     
     bool disjoint_input = true; // extra filter not useful so far!
     
+    bool secret_exon_mode = false;
+
     // UNUSED
     unsigned int max_flow_iteration = 5;
     unsigned int coverage_bias_limit = 20; // for potential adding more sources (!later)
@@ -335,6 +337,10 @@ public:
     // internal
     unsigned int get_coverage_change_limit() {
         return coverage_change_limit;
+    }
+
+    bool is_secret_exon_counting() {
+        return secret_exon_mode;
     }
     
     // unused

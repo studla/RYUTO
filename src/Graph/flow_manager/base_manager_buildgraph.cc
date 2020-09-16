@@ -2813,7 +2813,7 @@ void base_manager::create_region_from_node(unsigned int i, count_raw_node &node_
 		create_region(i, ssi->second.total_rights, ssi->second.lefts, ssi->second.rights, r);
 		
 		fs.series[ssi->first].capacity = std::max(r.get_max(), 1ul);
-		fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 1.0f), r.total_length);
+		fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 0.1f), r.total_length);
 		
 		fs.series[ssi->first].average_to_first_zero_from_left = r.get_average_to_first_zero_from_left();
 		fs.series[ssi->first].average_to_first_zero_from_right = r.get_average_to_first_zero_from_right();
@@ -2875,7 +2875,7 @@ void base_manager::create_region_from_edge(exon_edge& edge, count_raw_edge &edge
         #endif
 
         fs.series[ssi->first].capacity = r.get_max();
-        fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 1.0f), r.total_length);
+        fs.series[ssi->first].mean = capacity_mean(std::max(r.get_average(), 0.1f), r.total_length);
         
         fs.series[ssi->first].average_to_first_zero_from_left = r.get_average_to_first_zero_from_left();
         fs.series[ssi->first].average_to_first_zero_from_right = r.get_average_to_first_zero_from_right();

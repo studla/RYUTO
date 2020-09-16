@@ -114,6 +114,7 @@ void transcript::finalize_borders(exon_meta* meta) {
 
     #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Finalize: "+found_edge.to_string() + "\n");
+    logger::Instance()->debug("Meta: "+std::to_string(avrg_read_length) + "\n");
     #endif
 }
 
@@ -148,7 +149,12 @@ void transcript::print_count_matrix_entry(std::ostream &os, std::string &gene_id
         if (iss == series.end()) {
             os << "\t" << std::to_string(0);
         } else {
-            os << "\t" << std::to_string( (long) (series[iss->first].mean * (length / (float)(2 * avrg_read_length))) );
+            //avrg_read_length = 75;
+            long count = (long) (series[iss->first].mean * ((series[iss->first].effective_length)  / (float)(2 * avrg_read_length)));
+            if (count == 0 && series[iss->first].mean > 0) {
+                 count = 1;
+            }
+            os << "\t" << std::to_string( count );// << "(" << std::to_string(series[iss->first].effective_length) << "," << std::to_string(series[iss->first].mean) << "," << std::to_string(avrg_read_length) << ")" ;
         }
         
     }

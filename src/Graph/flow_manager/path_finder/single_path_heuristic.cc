@@ -78,6 +78,7 @@ void single_path_heuristic::extract_transcripts(alternative_transcript_collectio
 
         for (std::set<int>::iterator iii =  input_ids.begin(); iii != input_ids.end(); ++iii) {    
             results.transcripts.back()->series[*iii].mean = flows.get_mean(*iii).mean;
+            results.transcripts.back()->series[*iii].effective_length = flows.get_mean(*iii).weight;
             results.transcripts.back()->series[*iii].score = flows.get_mean(*iii).compute_score();
         }
     }

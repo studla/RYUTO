@@ -42,14 +42,20 @@ void capacity_mean::reduce(float percentage) {
     }
     
     mean = mean * percentage;
+    if (mean < 0.01 ) {
+        mean = 0.01;
+    }
     for (std::deque<float>::iterator si = scores.begin(); si != scores.end(); ++si) {
         *si = *si * percentage;
+        if (*si < 0.01 ) {
+            *si = 0.01;
+        }
     }
 }
 
 void capacity_mean::assign_mean(float m) {
 
-    if (std::isnan(m) || m < 0.0001 ) {
+    if (std::isnan(m) || m < 0.01 ) {
         m = 0.01;
     }
     mean = m;

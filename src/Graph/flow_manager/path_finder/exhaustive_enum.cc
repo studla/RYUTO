@@ -62,6 +62,7 @@ void exhaustive_enum::extract_transcripts(alternative_transcript_collection& res
 
                for (std::set<int>::iterator iii =  input_ids.begin(); iii != input_ids.end(); ++iii) {    
                    first.transcripts.back()->series[*iii].mean = flows.get_mean(*iii).mean;
+                   first.transcripts.back()->series[*iii].effective_length = flows.get_mean(*iii).weight;
                    first.transcripts.back()->series[*iii].score = flows.get_mean(*iii).compute_score();
                }
                found = true;

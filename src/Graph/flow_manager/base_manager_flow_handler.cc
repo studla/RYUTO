@@ -92,6 +92,11 @@ void base_manager::extract_transcripts_from_flow() {
         }
     }  
       
+   ListDigraph::ArcMap<bool> guided_saves(g);
+   std::deque<std::deque<ListDigraph::Arc> > guided_paths;
+   std::deque<std::pair<std::string, std::string> > refnames;
+   find_guide_sources_and_drains(guided_saves, guided_paths, refnames);
+
     #ifdef ALLOW_DEBUG
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
     #endif
@@ -111,16 +116,24 @@ void base_manager::extract_transcripts_from_flow() {
             if (ssi->second.length == 0) {
                 continue; // skip fully uninitialized
             }
+            if (guided_saves[o] && ssi->second.mean.mean < 3.0) {
+                continue;
+            }
 
             float cap = ssi->second.average_to_first_zero_from_right;
-            cap = std::max(cap, 1.0f);
+            rpos ltfr = ssi->second.length_to_first_zero_right;
+            cap = std::max(cap, 0.1f);
+            if (cap < ssi->second.mean.mean) {
+                cap = ssi->second.mean.mean;
+                ltfr = ssi->second.length;
+            }
             
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Reset Source " + std::to_string(g.id(pe)) + " at "+ std::to_string(ssi->first) + " " + std::to_string(cap)+ "-"+ std::to_string(ssi->second.region_average) + ".\n");
             #endif
             
             ssi->second.capacity = cap;
-            ssi->second.mean = capacity_mean(cap, ssi->second.length); // reset mean also
+            ssi->second.mean = capacity_mean(cap, ltfr); // reset mean also
         }
            
     }
@@ -140,16 +153,26 @@ void base_manager::extract_transcripts_from_flow() {
                 continue; // skip fully uninitialized
             }
 
+            if (guided_saves[i] && ssi->second.mean.mean < 3.0) {
+                continue;
+            }
+
             float cap = ssi->second.average_to_first_zero_from_left;
-            cap = std::max(cap, 1.0f);
+            rpos ltfl = ssi->second.length_to_first_zero_left;
+            cap = std::max(cap, 0.1f);
+
+            if (cap < ssi->second.mean.mean) {
+                cap = ssi->second.mean.mean;
+                ltfl = ssi->second.length;
+            }
             
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Reset Drain " + std::to_string(g.id(pe)) + " at "+ std::to_string(ssi->first) + " " + std::to_string(cap)+ "-"+ std::to_string(ssi->second.region_average) + ".\n");
             #endif
             
             ssi->second.capacity = cap;
-            ssi->second.mean = capacity_mean(cap, ssi->second.length); // reset mean also
-        }
+            ssi->second.mean = capacity_mean(cap, ltfl); // reset mean also
+        }  
            
     }
     
@@ -188,21 +211,7 @@ void base_manager::extract_transcripts_from_flow() {
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
     #endif
          
-   ListDigraph::ArcMap<bool> guided_saves(g);
-   std::deque<std::deque<ListDigraph::Arc> > guided_paths;
-   find_guide_sources_and_drains(guided_saves, guided_paths);
-    
-   // Guide Stats
-   unsigned int total_edges = 0;
-   unsigned int guided_edges = 0;
-   for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
-       total_edges++;
-       if(guided_saves[a]) {
-            guided_edges++;
-       }
-   }
-
-
+      
    // this is a set of exons directly neighbouring other exons
    // we only mark those which are either filled introns or in between sources or drains
    ListDigraph::ArcMap<bool> consecutive_s_t(g); // inits as false
@@ -287,7 +296,24 @@ void base_manager::extract_transcripts_from_flow() {
         return;
     }
 
-    
+    // Guide Stats
+    unsigned int total_edges = 0;
+    unsigned int guided_edges = 0;
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+        total_edges++;
+        if(guided_saves[a]) {
+             guided_edges++;
+        }
+    }
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("GuidedCount " + std::to_string(guided_edges) + " / "+ std::to_string(total_edges) + ".\n");
+    #endif    
+
+    std::deque<std::map<int, std::pair<double, rpos>> > guided_input_counts;
+    for(std::deque<std::deque<ListDigraph::Arc> >::iterator it = guided_paths.begin(); it != guided_paths.end(); ++it) {
+        guided_input_counts.push_back(std::map<int, std::pair<double, rpos>>());
+    }
+
     for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi){
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Denoise/Flow " + std::to_string(*idi) + ".\n"); 
@@ -300,31 +326,66 @@ void base_manager::extract_transcripts_from_flow() {
                 //logger::Instance()->debug("Correct " + std::to_string(g.id(a)) + " " + std::to_string(*idi) + ".\n");
 
                 fs[a].series[*idi].capacity = 1;
-                fs[a].series[*idi].mean = capacity_mean(1, std::max(fs[a].series[*idi].length, 1ul));
+                if (fs[a].series[*idi].mean.mean < 0.1) { 
+                    fs[a].series[*idi].mean = capacity_mean(0.1, std::max(fs[a].series[*idi].length, 1ul));
+                }
             }
         }
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Corrected " + std::to_string(*idi) + ".\n"); 
+        print_graph_debug_copy(std::cout, g, fs, ai, s, t);
+        #endif
         
-        if (options::Instance()->is_graph_denoising()) {
+        if (options::Instance()->is_graph_denoising()) { //TODO disable for guided
 
             if (guided_paths.empty()) {
                 denoise_graph(guided_saves, marked_source, marked_drain, *idi);
             } else {
-                bool double_denoise = (guided_edges *100 / total_edges) < 90;
 
-                if (double_denoise) { 
-                    denoise_graph(guided_saves, marked_source, marked_drain, *idi);
-                }
-                denoise_graph_guided(guided_paths, *idi, double_denoise);
+                denoise_graph_guided(guided_paths, *idi, guided_input_counts); 
+                denoise_graph(guided_saves, marked_source, marked_drain, *idi);
             }
-        }
-        
+
+        }    
+    }
+
+    // remove guide starts and ends TODO ugly here
+    prune_guides_source_and_drain();
+
+    for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi){
         #ifdef ALLOW_DEBUG
-        logger::Instance()->debug("Before Flow.\n");
+        logger::Instance()->debug("Flow " + std::to_string(*idi) + ".\n"); 
         print_graph_debug_copy(std::cout, g, fs, ai, s, t);
         #endif
-        
+
         finalize_flow_graph(*idi);
         compute_flow(*idi);
+    }
+
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("FLOW DONE IMMEDIATE.\n");
+    print_graph_debug_copy(std::cout, g, fs, ai, s, t);
+    #endif
+
+
+
+    // from here on out, we treat the combined data as a unique input from here on out, if we have more than one id!
+    if (input_ids.size() > 1) input_ids.insert(-1); 
+
+    for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi) {
+        
+        if (input_ids.size() > 1 && !options::Instance()->is_compute_all_singles() && *idi != -1) {
+            continue;
+        }
+
+        std::deque<std::map<int, std::pair<double, rpos> > >::iterator ic_i = guided_input_counts.begin();
+        std::deque<std::pair<std::string, std::string> >::iterator ref_i = refnames.begin();
+        for(std::deque<std::deque<ListDigraph::Arc> >::iterator it = guided_paths.begin(); it != guided_paths.end(); ++it, ++ic_i,++ref_i) {
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Guide Transcripts New: "+ std::to_string(*idi) + "\n");
+            #endif
+            add_guided_transcript(*it, transcripts[*idi], g, ai, *ic_i, ref_i->first, ref_i->second);
+        }
     }
     
     // join individual flow for joint work
@@ -352,18 +413,6 @@ void base_manager::extract_transcripts_from_flow() {
     logger::Instance()->debug("After Flow.\n");
     print_graph_debug_copy(std::cout, g, fs, ai, s, t);
     #endif
-    
-    // from here on out, we treat the combined data as a unique input from here on out, if we have more than one id!
-    if (input_ids.size() > 1) input_ids.insert(-1); 
-    
-    // in some cases we might have lost guides though due to poor performance of flow!
-    for(std::deque<std::deque<ListDigraph::Arc> >::iterator it = guided_paths.begin(); it != guided_paths.end(); ++it) {
-        for(std::deque<ListDigraph::Arc>::iterator it2 = it->begin(); it2 != it->end(); ++it2) {
-            for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi){
-                ++fs[*it2].get_flow(*idi);
-            }
-        }
-    }
     
     // remove all possible 0 flow edges by vote!
     for (ListDigraph::ArcIt a(g); a != INVALID; ) {
@@ -572,9 +621,11 @@ void base_manager::extract_transcripts_from_flow() {
         print_graph_debug_copy(std::cout, gc, fsc, aic, sc, tc);
         #endif
         
-        path_finder* pf = path_finder::create_path_finder(gc, sc, tc, fsc, aic, nic, kpc, kbpc, uac, uic, input_ids, transcripts, raw->size, meta);
-        pf->extract_guided_transcripts(transcripts[guiding], raw->guide_transcripts, guiding);    // test and extract evidenced transcripts 
-        delete pf; 
+
+        //alternative_transcript_collection dump; //TODO do this better
+        //path_finder* pf = path_finder::create_path_finder(gc, sc, tc, fsc, aic, nic, kpc, kbpc, uac, uic, input_ids, transcripts, raw->size, meta);
+        //pf->extract_guided_transcripts(dump, raw->guide_transcripts, guiding);    // test and extract evidenced transcripts 
+        //delete pf; 
 
         
         #ifdef ALLOW_DEBUG
@@ -592,7 +643,7 @@ void base_manager::extract_transcripts_from_flow() {
 
         // we have a simplified graph that we can now extract transcripts from
         // at this point we get the maximum amount of transcripts possible out of the existing DAG
-        pf = path_finder::create_path_finder(gc, sc, tc, fsc, aic, nic, kpc, kbpc, uac, uic, input_ids, transcripts, raw->size, meta);
+        path_finder* pf = path_finder::create_path_finder(gc, sc, tc, fsc, aic, nic, kpc, kbpc, uac, uic, input_ids, transcripts, raw->size, meta);
         pf->extract_transcripts(transcripts[guiding], guiding); // normal path extraction
         delete pf; 
 
@@ -617,7 +668,64 @@ void base_manager::extract_transcripts_from_flow() {
     
 }
 
-void base_manager::find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths) {
+
+void base_manager::add_guided_transcript(std::deque<ListDigraph::Arc> &stack, alternative_transcript_collection &cc,
+        ListDigraph &wc, ListDigraph::ArcMap<arc_identifier> &ai, std::map<int, std::pair<double, rpos> > &input_counts, std::string &reference_name, std::string &reference_gene) {
+     
+    // we collect every info over the path
+    cc.transcripts.push_back(lazy<transcript>());
+
+    std::deque<ListDigraph::Arc>::iterator a = stack.begin();
+    // there is always at least one element in the stack
+    
+    cc.transcripts.back()->found_edge = ai[*a].edge_specifier;
+    
+    for (std::map<int, std::pair<double, rpos> >::iterator iii = input_counts.begin(); iii != input_counts.end(); ++iii) {
+        int id = iii->first;
+        cc.transcripts.back()->series[id].effective_length = iii->second.second;
+        cc.transcripts.back()->series[id].flow = iii->second.first;
+        cc.transcripts.back()->series[id].mean = iii->second.first;
+        cc.transcripts.back()->series[id].score = iii->second.first;  
+    }
+    cc.transcripts.back()->guided = true;
+    cc.transcripts.back()->guide_reference = reference_name;
+    cc.transcripts.back()->guide_gene = reference_gene;    
+
+    for(;ai[*a].edge_type != edge_types::NODE ; ++a) { }
+    cc.transcripts.back()->found_edge = ai[*a].edge_specifier;
+
+    for(; a!=stack.end() && ai[*a].edge_type != edge_types::EXON; ++a) { }
+
+    if (a == stack.end()) {
+        // we have to just create the foundedge to the id
+       int node_index = cc.transcripts.back()->found_edge.node_index;
+       
+       #ifdef ALLOW_DEBUG
+       logger::Instance()->debug("node_index " + std::to_string(node_index)+"\n"); 
+       #endif
+       cc.transcripts.back()->found_edge = exon_edge(raw->size);
+       cc.transcripts.back()->found_edge.set(node_index, true); 
+       return;
+    }
+
+    cc.transcripts.back()->found_edge = ai[*a].edge_specifier;
+
+    #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("IN " + std::to_string(g.id(*a))  + " at id " + std::to_string(ai[*a].edge_specifier.node_index) + ".\n");
+    #endif
+    //logger::Instance()->debug("Update A " + cc.transcripts.back()->found_edge.to_string()  + ".\n");
+    for(; a!= stack.end(); ++a) {
+       
+        if (ai[*a].edge_type == edge_types::EXON) {
+             cc.transcripts.back()->found_edge.id |= ai[*a].edge_specifier.id;
+                 //logger::Instance()->debug("Update B " + cc.transcripts.back()->found_edge.to_string() + ":" + std::to_string(g.id(*a)) + ".\n");
+        }
+        
+    }
+}
+
+
+void base_manager::find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths, std::deque<std::pair<std::string, std::string> > &refnames) {
     
         logger::Instance()->debug("Save Guide Arcset " +std::to_string(raw->guide_transcripts.size()) + " .\n");
 
@@ -640,6 +748,7 @@ void base_manager::find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guid
         if (recursive_arc_backtracing(*transc, start_index, end_index, s, null_arc, path, false) ) {
             
             paths.push_back(std::deque<ListDigraph::Arc>());
+            refnames.push_back(std::make_pair((*eg_it)->reference_name, (*eg_it)->reference_gene));
             for (std::deque<ListDigraph::Arc>::iterator pi = path.begin(); pi!= path.end(); ++pi) {
                 #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("Save Arc: " + std::to_string(g.id(*pi)) + "\n");
@@ -706,6 +815,43 @@ void base_manager::prune_sources_and_drains_adjacent_starts(ListDigraph::ArcMap<
 	    logger::Instance()->debug("Erase Drain " + std::to_string(g.id(arc)) + ".\n");
             #endif
             
+            g.erase(arc);
+                       
+        }
+    }
+}
+
+
+void base_manager::prune_guides_source_and_drain() {
+
+    for (ListDigraph::OutArcIt o(g,s); o != INVALID; ) {    
+        ListDigraph::Arc arc(o);
+        ++o;
+        bool source_without_own_arc = false;
+        ListDigraph::InArcIt ni(g, g.target(arc));
+        for (;ni != INVALID; ++ni) {
+            if (ni != arc) { 
+                source_without_own_arc = true;
+            }
+        }
+        
+        if ( source_without_own_arc) {
+            g.erase(arc);
+        }
+    }
+
+    for (ListDigraph::InArcIt i(g,t); i != INVALID; ) {
+        ListDigraph::Arc arc(i);
+        ++i;
+        bool drain_without_own_arc = false;
+	    ListDigraph::OutArcIt no(g, g.source(arc)); // first node this belongs to!
+        for (;no != INVALID; ++no) {
+            if (no != arc) { 
+                drain_without_own_arc = true;
+            }
+        }
+
+        if ( drain_without_own_arc) {
             g.erase(arc);
                        
         }
@@ -2156,6 +2302,10 @@ void base_manager::denoise_graph(ListDigraph::ArcMap<bool> &guided_saves, ListDi
         if (marked_drain[a]) {
             average_push[a] = rec_score_forward(a, id);
         }
+        
+//        if (average_push[a] == 0) {
+//            average_push[a] = 1;
+//        }
     }
    
     // forward potential!
@@ -2290,9 +2440,11 @@ void base_manager::push_potential_forward(ListDigraph::ArcMap<rcount> &cp_fwd, s
             
             // we push the potential to the next adjourning edges
             rcount total_out = 0;
+            unsigned int count = 0;
             bool helper = false;
             for (ListDigraph::OutArcIt oi(g, *n); oi != INVALID ;++oi) {
                 total_out += average_push[oi];
+                ++count;
                 if (ai[oi].edge_type == edge_types::HELPER) {
                     helper = true;
                 }
@@ -2303,7 +2455,7 @@ void base_manager::push_potential_forward(ListDigraph::ArcMap<rcount> &cp_fwd, s
                     cp_fwd[oi] = right_potential * average_push[oi]/float(total_out); // upscaling according to own size
                     cs[oi] = right * average_push[oi]/float(total_out);
                 } else {
-                    cp_fwd[oi] = right_potential; // upscaling according to own size
+                    cp_fwd[oi] = right_potential / count; // upscaling according to own size
                     cs[oi] = right;
                 }
 
@@ -2378,9 +2530,11 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
             
             // we push the potential to the next adjourning edges
             rcount total_out = 0;
+            unsigned int count = 0;
             bool helper = false;
             for (ListDigraph::InArcIt oi(g, *n); oi != INVALID ;++oi) {
                 total_out += average_push[oi];
+                ++count;
                 if (ai[oi].edge_type == edge_types::HELPER) {
                     helper = true;
                 }
@@ -2391,7 +2545,7 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
                     cp_bw[oi] = left_potential * average_push[oi]/float(total_out); // upscaling according to own size
                     cs[oi] = left * average_push[oi]/float(total_out);
                 } else {
-                    cp_bw[oi] = left_potential; // upscaling according to own size
+                    cp_bw[oi] = left_potential / count; // upscaling according to own size
                     cs[oi] = left;                        
                 }
 //                #ifdef ALLOW_DEBUG
@@ -2402,9 +2556,272 @@ void base_manager::push_potential_backward(ListDigraph::ArcMap<rcount> &cp_bw, s
     }
 }
 
-void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, bool double_denoise) {
+void base_manager::denoise_graph_guided_step2(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, std::deque<std::map<int, std::pair<double, rpos>> > &input_counts, ListDigraph::NodeMap<float> &ratios) {
     
     #ifdef ALLOW_DEBUG
+    logger::Instance()->debug("Graph Denoise Guided \n");
+    #endif
+    
+    ListDigraph::ArcMap<rcount> guided_capacity(g);
+    ListDigraph::ArcMap<float> guided_percentage(g);
+        
+    Lp lp;
+    std::map<int , Lp::Expr> edge_constraints;
+    std::map<int , Lp::Expr> edge_constraints_neg;
+    std::map<int , int> edge_use;
+    std::map<int , Lp::Col> opts, checks;
+
+    std::deque<Lp::Col> guides_constr;
+    Lp::Expr optimize;
+
+    for (std::deque<std::deque<ListDigraph::Arc> >::iterator g_it = guides.begin(); g_it !=  guides.end(); ++g_it) {
+        // for each guide
+
+        guides_constr.push_back(lp.addCol());
+        lp.colLowerBound(guides_constr.back(), 0);
+        lp.colUpperBound(guides_constr.back(), Lp::INF);
+
+        float way_factor = 1;
+        bool first = true;
+
+        // loop first time 
+        std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin();
+        ++a_it;
+        
+        for (; a_it != g_it->end(); ++a_it) {
+            
+            if (ai[*a_it].edge_type == edge_types::HELPER) {
+                continue;
+            }
+            
+            if (!first) {
+                float fac = ratios[g.source(*a_it)];
+                way_factor = way_factor * fac;
+            } else {
+                first = false;
+            }
+            ++edge_use[g.id(*a_it)];
+            edge_constraints[g.id(*a_it)] += (guides_constr.back() * way_factor);
+            edge_constraints_neg[g.id(*a_it)] -= (guides_constr.back() * way_factor);
+        }
+    }
+    
+    const float leniency = 1.05;
+    for(std::map<int , Lp::Expr>::iterator ei = edge_constraints.begin(); ei != edge_constraints.end();++ei) {
+        lp.addRow(ei->second <= fs[g.arcFromId(ei->first)].series[id].mean.mean * leniency);
+
+        checks[ei->first] = lp.addCol();   // only for pretty logging
+        lp.addRow(checks[ei->first] <= ei->second );
+        lp.addRow(checks[ei->first] >= ei->second); 
+
+        opts[ei->first] = lp.addCol();  ;
+        lp.addRow(opts[ei->first] >= ei->second - fs[g.arcFromId(ei->first)].series[id].mean.mean);
+        lp.addRow(opts[ei->first] >= fs[g.arcFromId(ei->first)].series[id].mean.mean + edge_constraints_neg[ei->first] ); 
+    }
+
+    for (std::deque<std::deque<ListDigraph::Arc> >::iterator g_it = guides.begin(); g_it !=  guides.end(); ++g_it) {
+
+
+        unsigned int c1, c2, c3, c4, c5; 
+        c1 = 0;
+        c2 = 0;
+        c3 = 0;
+        c4 = 0;
+        c5 = 0;
+
+        for (std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin(); a_it != g_it->end(); ++a_it) {
+
+            if (ai[*a_it].edge_type == edge_types::HELPER) {
+                continue;
+            }
+
+            switch(edge_use[g.id(*a_it)]) {
+              case 1:
+                ++c1;
+                break;
+              case 2:
+                ++c2;
+                break;
+              case 3:
+                ++c3;
+                break;
+              case 4:
+                ++c4;
+                break;
+              case 5:
+                ++c5;
+                break;
+              default:
+                ++c5;
+            }
+        }
+
+        //logger::Instance()->debug("Cost extras: " + std::to_string(c1) + "-" + std::to_string(c2) + "-" + std::to_string(c3) + "-" + std::to_string(c4) + "-" + std::to_string(c5)  +"\n");
+
+        Lp::Expr o1, o2, o3, o4, o5;
+        for (std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin(); a_it != g_it->end(); ++a_it) {
+
+            if (ai[*a_it].edge_type == edge_types::HELPER) {
+                continue;
+            }
+
+            int id = g.id(*a_it);
+            switch(edge_use[id]) {
+              case 1:
+                o1 += opts[id] * (100 / float(c1));
+                logger::Instance()->debug("Factor " + std::to_string(id) + " " + std::to_string(100 / float(c1)) + "\n");
+                break; 
+              case 2:
+                o2 += opts[id]  * (10 / float(c2) / 2.0);
+                break;
+              case 3:
+                o3 += opts[id]  * (5 / float(c3) / 3.0);
+                break;
+              case 4:
+                o4 += opts[id]  * (2 / float(c4) / 4.0);
+                break;
+              case 5:
+                o5 += opts[id]  * (1 / float(c5) / 5.0);
+                break;
+              default:
+                o5 += opts[id]  * (1 / float(c5) / 20.0);
+            }
+        }
+        optimize += o1 + o2 + o3 + o4 + o5;
+    }
+
+
+    // Specify the objective function
+    lp.min();
+    lp.obj(optimize);
+    
+    // Solve the problem using the underlying LP solver
+    lp.solveDual();
+    // Print the results
+    if (lp.primalType() != Lp::OPTIMAL) {
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("LP Error Denoise\n");
+        #endif
+        return;
+    }
+  
+
+#ifdef ALLOW_DEBUG
+logger::Instance()->debug("Total Cost " + std::to_string(lp.primal())+"\n");
+for(std::map<int , Lp::Expr>::iterator ei = edge_constraints.begin(); ei != edge_constraints.end();++ei) {
+   logger::Instance()->debug("Edge Saturation " + std::to_string(ei->first) + " - " + std::to_string(lp.primal(checks[ei->first])) + " of " + std::to_string(fs[g.arcFromId(ei->first)].series[id].mean.mean) + " at cost " + std::to_string(lp.primal(opts[ei->first])) + " : " + std::to_string(lp.primal(checks[ei->first])/fs[g.arcFromId(ei->first)].series[id].mean.mean) + "\n");
+}
+#endif
+
+
+    std::deque<Lp::Col>::iterator gc_it = guides_constr.begin();
+   // std::deque<float> artificial = {3.0,33.0};
+   //std::deque<float>::iterator art_i = artificial.begin(); ++art_i
+    std::deque<std::map<int, std::pair<double, rpos>> >::iterator ic_i = input_counts.begin();
+    for (std::deque<std::deque<ListDigraph::Arc> >::iterator g_it = guides.begin(); g_it !=  guides.end(); ++g_it, ++gc_it, ++ic_i) {
+        // for each guide
+        
+        float way_factor = 1;
+        bool first = true;
+
+        // set guide_increase in second and third run!
+        double mean = 0;
+        unsigned int weight = 0; 
+        double guide_current = lp.primal(*gc_it); //*art_i;
+        if (guide_current < 0) guide_current = 0; // rare wiggle barely under 0 by floating point
+
+        logger::Instance()->debug("Guide Cap " + std::to_string(guide_current) + "\n");
+
+        std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin();
+        mean += guide_current;
+        weight += fs[*a_it].series[id].mean.weight;
+        //rcount max = guide_current;
+        
+        if (ai[*a_it].edge_type == edge_types::HELPER) {
+            guided_percentage[*a_it] = 1;
+        } else {
+            if (fs[*a_it].series[id].mean.mean > 0) {
+                guided_percentage[*a_it] += guide_current/float(fs[*a_it].series[id].mean.mean); 
+            } else {
+                guided_percentage[*a_it] = 1;
+            }
+        }
+        
+        ++a_it;
+        for (; a_it != g_it->end(); ++a_it) {
+            
+            float fac = ratios[g.source(*a_it)];
+
+            if (!first) {
+                guide_current = guide_current * fac;
+            } else {
+                first = false;
+            }
+
+            mean += guide_current * fs[*a_it].series[id].mean.weight;
+            weight += fs[*a_it].series[id].mean.weight;            
+
+            //if (guide_current > max) {
+            //    max = guide_current;
+            //}
+            
+           logger::Instance()->debug("Current " + std::to_string(g.id(*a_it)) + " " + std::to_string(guide_current) + " " + std::to_string(fac) + "\n");
+            
+            if (ai[*a_it].edge_type == edge_types::HELPER) {
+                guided_percentage[*a_it] = 1;
+            } else {
+                if (fs[*a_it].series[id].mean.mean > 0) {
+                    guided_percentage[*a_it] += guide_current/float(fs[*a_it].series[id].mean.mean); 
+                } else {
+                    guided_percentage[*a_it] = 1;
+                }
+            }
+        }
+        mean = mean / weight;
+        
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Guide Mean " + std::to_string(mean) +  "\n");
+        #endif        
+
+        for (std::deque<ListDigraph::Arc>::iterator f_it = g_it->begin(); f_it != g_it->end(); ++f_it) {
+            guided_capacity[*f_it] += mean;
+        }
+
+        (*ic_i)[id] = std::make_pair(mean, weight);
+    }
+    
+    float truth_limit = 1 - options::Instance()->get_guide_trust_level();
+    
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+        
+        if (ai[a].edge_type == edge_types::HELPER) {
+            continue;
+        }
+
+
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("Set " + std::to_string(g.id(a)) + " " + std::to_string(guided_percentage[a]) + " " + std::to_string(guided_capacity[a]) + "\n");
+        #endif
+        
+        if (guided_percentage[a] >= truth_limit) {
+            fs[a].series[id].capacity = 0;
+            fs[a].series[id].region_max = 1;
+            fs[a].series[id].right = 1;
+            fs[a].series[id].left = 1;
+            fs[a].series[id].mean.reduce(0);
+        } else if (guided_percentage[a] > 0) {
+            fs[a].series[id].capacity = fs[a].series[id].capacity * ( 1 - guided_percentage[a] );
+            fs[a].series[id].region_max = fs[a].series[id].region_max * ( 1 - guided_percentage[a] );
+            fs[a].series[id].right = fs[a].series[id].right * ( 1 - guided_percentage[a] );
+            fs[a].series[id].left = fs[a].series[id].left * ( 1 - guided_percentage[a] );
+            fs[a].series[id].mean.reduce( 1 - guided_percentage[a] );
+        }
+    } 
+}
+
+void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, std::deque<std::map<int, std::pair<double, rpos>> > &input_counts) {
+    
+       #ifdef ALLOW_DEBUG
     logger::Instance()->debug("Graph Denoise Guided \n");
     #endif
     
@@ -2417,20 +2834,20 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
         bool in_helper = false;
         bool out_helper = false;
 		
-        rcount in_push = 0;
+        double in_push = 0;
         for (ListDigraph::InArcIt inpi(g, n); inpi != INVALID ;++inpi) {
             if (ai[inpi].edge_type == edge_types::HELPER) {
                 in_helper = true;
             }
-            in_push += fs[inpi].series[id].capacity;
+            in_push += fs[inpi].series[id].mean.mean;
         }
         
-        rcount out_push = 0;
+        double out_push = 0;
         for (ListDigraph::OutArcIt onpi(g, n); onpi != INVALID ;++onpi) {
             if (ai[onpi].edge_type == edge_types::HELPER) {
                 out_helper = true;
             }
-            out_push += fs[onpi].series[id].capacity;
+            out_push += fs[onpi].series[id].mean.mean;
         }
 
     #ifdef ALLOW_DEBUG
@@ -2440,39 +2857,36 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
         if (out_push == 0 || in_push == 0) {
 			ratios[n] = 1;
 		} else if (in_helper || out_helper) {
-            // we use the exon borders to estimate how much is actually lost by the helpers
-            if (!double_denoise) {
-			    if (out_helper) {
-                    ListDigraph::InArcIt exon_arc(g, n); // there can only be one here as we are not compacted
-                    out_push = fs[exon_arc].series[id].right;
-                    if (out_push == 0) {
-                         out_push = 1;
-                    }
-                //    logger::Instance()->debug("Correct Helper Out " + std::to_string(out_push)  + "\n");
-
-			    } else {  // cannot be both
-                    ListDigraph::OutArcIt exon_arc(g, n); // there can only be one here as we are not compacted
-                    in_push = fs[exon_arc].series[id].left;
-                    if (in_push == 0) {
-                         in_push = 1;
-                    }
-                //    logger::Instance()->debug("Correct Helper In " + std::to_string(in_push)  + "\n");
-
-			    }
-            }
-            ratios[n] = out_push/float(in_push);
+            ratios[n] = out_push/in_push;
         } else {
-            ratios[n] = out_push/float(in_push);
+            ratios[n] = out_push/in_push;
         }
     }
     
+    Lp lp;
+    std::map<int , Lp::Expr> edge_constraints;
+    std::map<int , Lp::Expr> edge_constraints_neg;
+    std::map<int , int> edge_use;
+    std::map<int , Lp::Col> opts, checks;
+
+    std::deque<Lp::Col> guides_constr;
+    Lp::Expr optimize;
+
     for (std::deque<std::deque<ListDigraph::Arc> >::iterator g_it = guides.begin(); g_it !=  guides.end(); ++g_it) {
         // for each guide
-        
+
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("New Guide \n");
+        #endif
+
+        guides_constr.push_back(lp.addCol());
+        lp.colLowerBound(guides_constr.back(), 0);
+        lp.colUpperBound(guides_constr.back(), Lp::INF);
+
         float way_factor = 1;
-        rcount guide_cap = 0;
-        
-        // loop first time
+        bool first = true;
+
+        // loop first time 
         std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin();
         ++a_it;
         
@@ -2482,81 +2896,198 @@ void base_manager::denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> 
                 continue;
             }
             
-            float fac = ratios[g.source(*a_it)];
-            way_factor = way_factor * fac;
-            rcount local_limit = std::ceil(fs[*a_it].series[id].capacity * 1/way_factor);
-            
-            logger::Instance()->debug("Cap " + std::to_string(g.id(*a_it)) + " " + std::to_string(fs[*a_it].series[id].capacity) + "\n");
-            logger::Instance()->debug("Overshoot Test " + std::to_string(g.id(*a_it)) + " " + std::to_string(local_limit) + " " + std::to_string(fac) + " " + std::to_string(way_factor) + "\n");
-            if (local_limit < guide_cap || guide_cap == 0) {
-                guide_cap = local_limit ;
-            }
-        }
-        
-        logger::Instance()->debug("Guide Cap " + std::to_string(guide_cap) + "\n");
-        
-        // set guide_increase in second and third run!
-        rcount mean = 0;
-        rcount guide_current = guide_cap;
-        a_it = g_it->begin();
-        mean += guide_current;
-        //rcount max = guide_current;
-        
-        if (ai[*a_it].edge_type == edge_types::HELPER) {
-            guided_percentage[*a_it] = 1;
-        } else {
-            if (fs[*a_it].series[id].capacity > 0) {
-                guided_percentage[*a_it] += guide_current/float(fs[*a_it].series[id].capacity); 
+            if (!first) {
+                float fac = ratios[g.source(*a_it)];
+                way_factor = way_factor * fac;
             } else {
-                guided_percentage[*a_it] = 1;
+                first = false;
             }
-        }
-        
-        ++a_it;
-        for (; a_it != g_it->end(); ++a_it) {
-            
-            float fac = ratios[g.source(*a_it)];
-            guide_current = std::ceil(guide_current * fac);
-            mean += guide_current;
-            //if (guide_current > max) {
-            //    max = guide_current;
-            //}
-            
-            logger::Instance()->debug("Current " + std::to_string(g.id(*a_it)) + " " + std::to_string(guide_current) + " " + std::to_string(fac) + "\n");
-            
-            if (ai[*a_it].edge_type == edge_types::HELPER) {
-                guided_percentage[*a_it] = 1;
-            } else {
-                if (fs[*a_it].series[id].capacity > 0) {
-                    guided_percentage[*a_it] += guide_current/float(fs[*a_it].series[id].capacity); 
-                } else {
-                    guided_percentage[*a_it] = 1;
-                }
-            }
-        }
-        mean = mean / (g_it->size() - 1);
-        
-        //logger::Instance()->debug("Guide Mean " + std::to_string(mean) +  "\n");
-        
-        for (std::deque<ListDigraph::Arc>::iterator f_it = g_it->begin(); f_it != g_it->end(); ++f_it) {
-            guided_capacity[*f_it] += mean;
+            ++edge_use[g.id(*a_it)];
+            edge_constraints[g.id(*a_it)] += (guides_constr.back() * way_factor);
+            edge_constraints_neg[g.id(*a_it)] -= (guides_constr.back() * way_factor);
+
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Add Constraint " + std::to_string(g.id(*a_it)) + " wf " + std::to_string(way_factor) + "\n");
+            #endif
+
         }
     }
     
-    float truth_limit = 0.8; //1 - options::Instance()->get_guide_trust_level();
-    
-    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
-        
-        #ifdef ALLOW_DEBUG
-        logger::Instance()->debug("Set " + std::to_string(g.id(a)) + " " + std::to_string(guided_percentage[a]) + " " + std::to_string(guided_capacity[a]) + "\n");
-        #endif
-        
-        if (guided_percentage[a] >= truth_limit) {
-            fs[a].series[id].capacity = guided_capacity[a];
-        } else if (guided_percentage[a] > 0) {
-            fs[a].series[id].capacity = guided_capacity[a]  + fs[a].series[id].capacity * ( 1 - guided_percentage[a] );
+    const float leniency = 1.05;
+    for(std::map<int , Lp::Expr>::iterator ei = edge_constraints.begin(); ei != edge_constraints.end();++ei) {
+        lp.addRow(ei->second <= fs[g.arcFromId(ei->first)].series[id].mean.mean * leniency);
+
+        checks[ei->first] = lp.addCol();   // only for pretty logging
+        lp.addRow(checks[ei->first] <= ei->second );
+        lp.addRow(checks[ei->first] >= ei->second); 
+
+        opts[ei->first] = lp.addCol();  ;
+        lp.addRow(opts[ei->first] >= ei->second - fs[g.arcFromId(ei->first)].series[id].mean.mean);
+        lp.addRow(opts[ei->first] >= fs[g.arcFromId(ei->first)].series[id].mean.mean + edge_constraints_neg[ei->first] ); 
+    }
+
+    for (std::deque<std::deque<ListDigraph::Arc> >::iterator g_it = guides.begin(); g_it !=  guides.end(); ++g_it) {
+
+
+        unsigned int c1, c2, c3, c4, c5; 
+        c1 = 0;
+        c2 = 0;
+        c3 = 0;
+        c4 = 0;
+        c5 = 0;
+
+        for (std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin(); a_it != g_it->end(); ++a_it) {
+
+            if (ai[*a_it].edge_type == edge_types::HELPER) {
+                continue;
+            }
+
+            switch(edge_use[g.id(*a_it)]) {
+              case 1:
+                ++c1;
+                break;
+              case 2:
+                ++c2;
+                break;
+              case 3:
+                ++c3;
+                break;
+              case 4:
+                ++c4;
+                break;
+              case 5:
+                ++c5;
+                break;
+              default:
+                ++c5;
+            }
         }
-    } 
+
+        //logger::Instance()->debug("Cost extras" + std::to_string(c1) + "-" + std::to_string(c2) + "-" + std::to_string(c3) + "-" + std::to_string(c4) + "-" + std::to_string(c5)  +"\n");
+
+        Lp::Expr o1, o2, o3, o4, o5;
+        for (std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin(); a_it != g_it->end(); ++a_it) {
+
+            if (ai[*a_it].edge_type == edge_types::HELPER) {
+                continue;
+            }
+
+            int id = g.id(*a_it);
+            switch(edge_use[id]) {
+              case 1:
+                o1 += opts[id] * (100 / float(c1));
+                logger::Instance()->debug("Factor " + std::to_string(id) + " " + std::to_string(100 / float(c1)) + "\n");
+                break; 
+              case 2:
+                o2 += opts[id]  * (10 / float(c2) / 2.0);
+                break;
+              case 3:
+                o3 += opts[id]  * (5 / float(c3) / 3.0);
+                break;
+              case 4:
+                o4 += opts[id]  * (2 / float(c4) / 4.0);
+                break;
+              case 5:
+                o5 += opts[id]  * (1 / float(c5) / 5.0);
+                break;
+              default:
+                o5 += opts[id]  * (1 / float(c5) / 20.0);
+            }
+        }
+        optimize += o1 + o2 + o3 + o4 + o5;
+    }
+
+
+    // Specify the objective function
+    lp.min();
+    lp.obj(optimize);
+    
+    // Solve the problem using the underlying LP solver
+    lp.solveDual();
+    // Print the results
+    if (lp.primalType() != Lp::OPTIMAL) {
+        #ifdef ALLOW_DEBUG
+        logger::Instance()->debug("LP Error Denoise\n");
+        #endif
+        return;
+    }
+  
+
+#ifdef ALLOW_DEBUG
+logger::Instance()->debug("Total Costs-Pre " + std::to_string(lp.primal())+"\n");
+
+for (std::deque<Lp::Col>::iterator gi = guides_constr.begin(); gi != guides_constr.end(); ++gi) {
+   logger::Instance()->debug("Seed " + std::to_string(lp.primal(*gi))+"\n"); 
+}
+for(std::map<int , Lp::Expr>::iterator ei = edge_constraints.begin(); ei != edge_constraints.end();++ei) {
+   logger::Instance()->debug("Edge Saturation " + std::to_string(ei->first) + " - " + std::to_string(lp.primal(checks[ei->first])) + " of " + std::to_string(fs[g.arcFromId(ei->first)].series[id].mean.mean) + " at cost " + std::to_string(lp.primal(opts[ei->first])) + " : " + std::to_string(lp.primal(checks[ei->first])/fs[g.arcFromId(ei->first)].series[id].mean.mean) + "\n");
+}
+#endif
+
+    for (ListDigraph::NodeIt n(g); n != INVALID; ++n) {
+        
+        bool in_helper = false;
+        bool out_helper = false;
+		
+        double in_push = 0;
+        double in_push_mean = 0;
+        for (ListDigraph::InArcIt inpi(g, n); inpi != INVALID ;++inpi) {
+            if (ai[inpi].edge_type == edge_types::HELPER) {
+                in_helper = true;
+            } else {
+                if (checks.find(g.id(inpi)) != checks.end()) {
+                    in_push += lp.primal(checks[g.id(inpi)]);
+                } else {
+                    in_push += fs[inpi].series[id].mean.mean;
+                }
+                in_push_mean += fs[inpi].series[id].mean.mean;
+            }
+        }
+        
+        double out_push = 0;
+        double out_push_mean = 0;
+        for (ListDigraph::OutArcIt onpi(g, n); onpi != INVALID ;++onpi) {
+            if (ai[onpi].edge_type == edge_types::HELPER) {
+                out_helper = true;
+            } else {
+                if (checks.find(g.id(onpi)) != checks.end()) {
+                    out_push += lp.primal(checks[g.id(onpi)]);
+                } else {
+                    out_push += fs[onpi].series[id].mean.mean;
+                }
+                out_push_mean += fs[onpi].series[id].mean.mean;
+            }
+        }
+
+        if (in_push_mean == 0 || out_push_mean == 0) { 
+            //skip
+        } else if (in_helper) {
+            double potential = 1 - (out_push/out_push_mean - in_push/in_push_mean );
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Potential in " + std::to_string(g.id(n)) + " " + std::to_string(potential) + ": " + std::to_string(out_push)+ "/" + std::to_string(out_push_mean) + " " + std::to_string(in_push)+ "/" + std::to_string(in_push_mean) + "\n");
+            #endif
+            if (potential < 1 && potential > 0.2) {
+                ratios[n] = (out_push_mean * potential)/in_push_mean;
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Correct Ratio In " + std::to_string(g.id(n)) + " " + std::to_string(ratios[n])+ " p " + std::to_string(potential)+"\n");
+                #endif
+            }
+        } else if (out_helper) {
+            double potential = 1 - (in_push/in_push_mean - out_push/out_push_mean);
+            #ifdef ALLOW_DEBUG
+            logger::Instance()->debug("Potential Out " + std::to_string(g.id(n)) + " " + std::to_string(potential) + ": " + std::to_string(out_push)+ "/" + std::to_string(out_push_mean) + " " + std::to_string(in_push)+ "/" + std::to_string(in_push_mean) + "\n");
+            #endif
+            if (potential < 1 && potential > 0.2) {
+                ratios[n] = out_push_mean/(in_push_mean * potential);
+                #ifdef ALLOW_DEBUG
+                logger::Instance()->debug("Correct Ratio Out " + std::to_string(g.id(n)) + " " + std::to_string(ratios[n])+ " p " + std::to_string(potential) + "\n");
+                #endif
+            }
+        }
+    }
+
+    denoise_graph_guided_step2(guides, id, input_counts, ratios);
+
 }
 
 
@@ -2864,11 +3395,11 @@ void base_manager::follow_contraction(ListDigraph& gc,
     }
     
     #ifdef ALLOW_DEBUG
-    logger::Instance()->debug("Exit \n");
-    digraphWriter(gc, std::cout)
-        .arcMap("ai", aic)
-        .arcMap("flow", fsc)
-        .run();
+    //logger::Instance()->debug("Exit \n");
+    //digraphWriter(gc, std::cout)
+    //    .arcMap("ai", aic)
+    //    .arcMap("flow", fsc)
+    //    .run();
     #endif
     
 }
@@ -4176,6 +4707,7 @@ bool base_manager::simplify_ambiguous_ILP(ListDigraph& gc,
             capacity_type max = 0;
             for ( std::deque<component>::iterator ci = classify[n]->components.begin(); ci != classify[n]->components.end(); ++ci) {
                 capacity_type count = unravel_evidences_ILP(n, guiding_id, left_groups_ids[n], right_groups_ids[n], barred, ci->fragments, ci->nodes, gc, aic, fsc, nic, kpc, kbpc, uac, uic, meta->size, input_ids, trans);
+
                 if (count > max) {
                     max = count;
                 }
@@ -5992,6 +6524,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
             unravel_ILP(lga, rga, caps, guiding_id, wc, fsc, aic, kpc, kbpc, unsecurityArc, unsecurityId, transcript_unsecurity::EVIDENCED);
         }
     }
+
       
     #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Add Over and underflow to original edge \n");
@@ -6105,7 +6638,6 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
     #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Clean Leftovers New Nodes \n");
     #endif
-   
 
     for (std::set<int>::iterator lg_it = in_groups.begin(); lg_it != in_groups.end(); ++lg_it) {
         int lg = *lg_it;
@@ -6143,6 +6675,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
         clean_barred_leftovers(ngi->second,barred, guiding_id, wc, aic, fsc, kpc, kbpc, unsecurityArc, unsecurityId, input_ids, transcripts);
     }
         
+
     // we now look at possibly unevidenced leftovers
     // remove all 0 edges here
     for (ListDigraph::InArcIt a(wc, node); a!=INVALID; ) {
@@ -6277,6 +6810,7 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
         
             float ratio = in_flow[id] / (float) out_flow[id];
             if (ratio > 1) ratio = 1;
+            if (out_flow[id] == 0) ratio = 0;
         
             std::deque<capacity_type> flows;
             capacity_type total = 0;
@@ -6309,6 +6843,7 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
         
             float ratio = out_flow[id] / (float) in_flow[id];
             if (ratio > 1) ratio = 1;
+            if (out_flow[id] == 0) ratio = 0;
         
             std::deque<capacity_type> flows;
             capacity_type total = 0;
@@ -6750,8 +7285,10 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                         weight_left += fsc[a].get_flow(id);
                     }
                 }
-                mean_left = mean_left / (float) weight_left;
-                score_left = score_left / (float) weight_left;
+                if(weight_left > 0) { 
+                    mean_left = mean_left / (float) weight_left;
+                    score_left = score_left / (float) weight_left;
+                }
 
                 float mean_right = 0;
                 float score_right = 0;
@@ -6763,8 +7300,10 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                         weight_right += fsc[a].get_flow(id);
                     }
                 }
-                mean_right = mean_right / (float) weight_right;
-                score_right = score_right / (float) weight_right;
+                if (weight_right > 0) {
+                    mean_right = mean_right / (float) weight_right;
+                    score_right = score_right / (float) weight_right;
+                }
 
                 float mean;
                 float score;
@@ -6780,6 +7319,8 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 }
 
                 float ratio = (float) caps[id] / (float) weight;
+                if (weight == 0) ratio = 0;
+                
                 fsc[new_arc].get_mean(id).hidden_score = score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
                 fsc[new_arc].get_mean(id).assign_mean(mean * ratio);
@@ -6902,6 +7443,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 
                 fsc[new_arc].get_flow(id) = ci.group_flow - ci.evidenced_flow;
                 float ratio = (float) ci.evidenced_flow / (float) ci.group_flow;
+                if (ci.group_flow == 0) ratio = 0;
                 fsc[new_arc].get_mean(id).hidden_score = ci.score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
                 fsc[new_arc].get_mean(id).assign_mean(ci.mean * ratio);
@@ -6959,6 +7501,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 
                 fsc[new_arc].get_flow(id) = ci.group_flow - ci.evidenced_flow;
                 float ratio = (float) ci.evidenced_flow / (float) ci.group_flow;
+                if (ci.group_flow == 0) ratio = 0;
                 fsc[new_arc].get_mean(id).hidden_score = ci.score * ratio;
                 fsc[new_arc].get_mean(id).weight = 0;
                 fsc[new_arc].get_mean(id).assign_mean(ci.mean * ratio);
@@ -7710,6 +8253,73 @@ void base_manager::extend_path_right(std::deque<path>& paths, path* p, unsigned 
     }
     
 }
+
+void base_manager::print_exon_counts(std::ostream& os) {
+    
+    std::map<std::pair<rpos, rpos>, std::vector<float> > ec;
+    std::map<std::pair<rpos, rpos>, std::vector<float> > sc;
+    for (ListDigraph::ArcIt a(g); a != INVALID; ++a) {
+        if (ai[a].edge_type == edge_types::NODE) {
+            
+            int ni = ai[a].edge_specifier.node_index;       
+            rpos l = meta->exons[ni].left;
+            rpos r = meta->exons[ni].right;
+            
+            for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi){ 
+                ec[std::make_pair(l,r)].push_back(fs[a].series[*idi].region_average);
+            }
+        } else if (ai[a].edge_type == edge_types::EXON) {
+            rpos nl = meta->exons[node_index[g.source(a)]].right;
+            rpos nr = meta->exons[node_index[g.target(a)]].left;
+            
+            for (std::set<int>::iterator idi = input_ids.begin(); idi != input_ids.end(); ++idi){ 
+                sc[std::make_pair(nl,nr)].push_back(fs[a].series[*idi].region_average);
+            }
+        }
+    }  
+    
+    os  << ">New Splice Graph<" << std::endl ;
+    for (std::map<std::pair<rpos, rpos>, std::vector<float> >::iterator it = ec.begin(); it!= ec.end(); ++it) {
+         os  << chromosome << "\tExon\t" << meta->strand << "\t" << std::to_string(it->first.first) << "\t" << std::to_string(it->first.second) << "\t" << std::to_string(it->first.second - it->first.first + 1);
+         for (std::vector<float>::iterator ci = it->second.begin(); ci != it->second.end(); ++ci) {
+             os  << "\t" << std::to_string(*ci);
+         }
+         os << std::endl;
+    }
+        for (std::map<std::pair<rpos, rpos>, std::vector<float> >::iterator it = sc.begin(); it!= sc.end(); ++it) {
+         os  << chromosome << "\tSplice\t" << meta->strand << "\t" << std::to_string(it->first.first) << "\t" << std::to_string(it->first.second) << "\t-";
+         for (std::vector<float>::iterator ci = it->second.begin(); ci != it->second.end(); ++ci) {
+             os  << "\t" << std::to_string(*ci);
+         }
+         os << std::endl;
+    }
+    
+}
+    
+    
+void base_manager::single_counts(std::ostream& os) {
+    
+
+    for (std::set<single_exon >::iterator it = single_exons.begin(); it != single_exons.end(); ++it) {
+        os  << ">New Splice Graph<" << std::endl ;
+        os << chromosome << "\tSingleExon\t" << meta->strand << "\t" << meta->exons[it->meta].left << "\t" << meta->exons[it->meta].right;
+        for (std::set<int>::iterator iii = input_ids.begin(); iii != input_ids.end(); ++iii) {
+            int id = *iii;
+                    
+            if (it->capacity.find(id) != it->capacity.end()) {
+                os  << "\t" << std::to_string(it->capacity.at(id));
+            } else {
+                os  << "\t0";
+            }
+        }
+        os << std::endl;
+    }
+}
+    
+
+    
+         
+
 
 void base_manager::print_graph_debug_copy(std::ostream& os,
     ListDigraph &wc,

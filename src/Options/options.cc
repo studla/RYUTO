@@ -39,7 +39,7 @@ void options::init(int argc, char **argv) {
     po::options_description basic_o("Basic options");
     basic_o.add_options()
     ("gtf-guide,g", po::value<std::string>(), "Path to a gtf/gff file containing reference genes. (default: none)")
-    ("guide-trustlevel", po::value<unsigned int>(), "Level of trust in the given guides. 0 no trust. 100 maximal trust. Abstract non-linear variable! (default: 60)")
+    ("guide-trustlevel", po::value<unsigned int>(), "Level of trust in the given guides. 0 no trust. 100 maximal trust. Abstract non-linear variable! (default: 20)")
     ("pool,w", po::value<unsigned int>(), "Number of consecutive inputs to merge internally in groups.")
     //("diff-exp-groups,e", po::value<std::string>(), "Input grouping for differential expression by index of inputs, e.g. '1-2;3-4'; or '1;2;' .")
     ("nc", po::value<unsigned int>(), "Number of chromosomes processed in parallel. (# of threads = nc * ng; default: 1)")
@@ -113,6 +113,7 @@ void options::init(int argc, char **argv) {
     
     po::options_description hidden("");
     hidden.add_options()
+        ("exon-counting", "Secret mode to output only exon counts.")
         ("sam", po::value<std::vector<std::string> >(), "Input alignment Bam/Sam")
         ;
     
@@ -134,7 +135,7 @@ void options::init(int argc, char **argv) {
         std::cout << graph_filter_o << std::endl;
         std::cout << filter_o << std::endl;
         std::cout << tech_o << std::endl;
-        std::cout << "(Version 1.4m_alpha)" << std::endl;
+        std::cout << "(Version 1.5m)" << std::endl;
         std::exit(0);
     }
     
@@ -148,6 +149,12 @@ void options::init(int argc, char **argv) {
         debug = false;
     }
     
+    if(vm.count("exon-counting")) {
+        secret_exon_mode = true;
+    }
+
+
+
     if(!vm.count("sam")) {
         logger::Instance()->error("No Input BAM/SAM file.");
         std::exit(1);

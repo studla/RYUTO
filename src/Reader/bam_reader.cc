@@ -227,9 +227,16 @@ bool bam_reader::populate_next_group(const std::string &chrom_name, greader_list
     }
   
     if (options::Instance()->is_stranded()) {
-        meta->avrg_read_length = it->fwd->average_read_lenghts / 2 + it->bwd->average_read_lenghts / 2 ;
+        logger::Instance()->info("Compute Avrg " + std::to_string(it->fwd->average_read_lenghts) + " " + std::to_string(it->bwd->average_read_lenghts)  +".\n");
+        if (it->fwd->average_read_lenghts < 1.0) {
+            meta->avrg_read_length = it->bwd->average_read_lenghts ;
+        } else if (it->bwd->average_read_lenghts < 1.0) {
+            meta->avrg_read_length = it->fwd->average_read_lenghts ;
+        } else {
+            meta->avrg_read_length = it->fwd->average_read_lenghts / 2 + it->bwd->average_read_lenghts / 2 ;
+        }
     } else {
-        meta->avrg_read_length = it->fwd->average_read_lenghts / 2;
+        meta->avrg_read_length = it->fwd->average_read_lenghts;
     }
 
     // split up components
@@ -574,8 +581,8 @@ void bam_reader::read_chromosome(std::vector<std::string> file_names, std::strin
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Next Sam Iter " + std::string(bam_get_qname(read)) + "\n");
         #endif
-        // 
-        if (read->core.flag & BAM_FSECONDARY || read->core.flag & BAM_FUNMAP || read->core.qual < 1) { // this is a secondary alignment
+        //
+        if (read->core.flag & BAM_FSECONDARY ||  read->core.flag & BAM_FUNMAP || read->core.qual < 1) { // this is a secondary alignment
             // only use primary alignments
             #ifdef ALLOW_DEBUG
             logger::Instance()->debug("Skip by Flags " + std::to_string(read->core.flag & BAM_FSECONDARY) + " - " + std::to_string(read->core.flag & BAM_FUNMAP) + " - " + std::to_string(read->core.qual) + "\n");

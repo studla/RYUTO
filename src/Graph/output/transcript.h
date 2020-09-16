@@ -31,6 +31,7 @@ public:
 
     struct series_struct {
         capacity_type flow;
+        rpos effective_length;
         float mean;
         float score;
         float fpkm;

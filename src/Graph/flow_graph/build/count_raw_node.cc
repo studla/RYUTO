@@ -40,12 +40,12 @@ void count_raw_node::add_node(count_raw_node* node) {
             }
         }
         
-        logger::Instance()->debug("NODE CHECK A " + std::to_string(ssi->second.total_lefts) + " - " + std::to_string(ssi->second.total_rights) + "\n");
+        //logger::Instance()->debug("NODE CHECK A " + std::to_string(ssi->second.total_lefts) + " - " + std::to_string(ssi->second.total_rights) + "\n");
         
         series[id].total_lefts += ssi->second.total_lefts;
         series[id].total_rights += ssi->second.total_rights;
         
-        logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
+        //logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
     }
 }
 
@@ -99,7 +99,7 @@ void count_raw_node::add_node_start(exon_group* exons) {
 
         series[id].total_lefts += ssi->second.total_lefts + ssi->second.hole_end_counts[0] - ssi->second.hole_start_counts[0];
 
-        logger::Instance()->debug("NODE CHECK B " + std::to_string(ssi->second.total_lefts) + " - " + std::to_string(ssi->second.hole_end_counts[0]) + " - "+ std::to_string(ssi->second.hole_start_counts[0]) + "\n");
+        //logger::Instance()->debug("NODE CHECK B " + std::to_string(ssi->second.total_lefts) + " - " + std::to_string(ssi->second.hole_end_counts[0]) + " - "+ std::to_string(ssi->second.hole_start_counts[0]) + "\n");
 
         if (exons->bin_mask.id.count() == 1) { // just one long, lefts are rights
             for (std::map< rpos,rcount >::iterator li = ssi->second.rights->begin(); li != ssi->second.rights->end(); ++li) {      
@@ -111,12 +111,12 @@ void count_raw_node::add_node_start(exon_group* exons) {
                 }
             }
              // there can't be an imbalance for single exon evidence
-             logger::Instance()->debug("NODE CHECK B Single " + std::to_string(series[id].total_lefts) + " :- " + std::to_string(ssi->second.total_rights) + "\n");
+             //logger::Instance()->debug("NODE CHECK B Single " + std::to_string(series[id].total_lefts) + " :- " + std::to_string(ssi->second.total_rights) + "\n");
 
             series[id].total_lefts -= ssi->second.total_rights;
         }
         
-        logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
+        //logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
     }
     
 //    #ifdef ALLOW_DEBUG
@@ -174,11 +174,11 @@ void count_raw_node::add_node_end(exon_group* exons) {
             }
         }
         
-        logger::Instance()->debug("NODE CHECK C " + std::to_string(series[id].total_rights) + " :" + std::to_string(ssi->second.total_rights) + " - " + std::to_string(ssi->second.hole_start_counts[last_i]) + " - "+ std::to_string(ssi->second.hole_end_counts[last_i]) + "\n");
+        //logger::Instance()->debug("NODE CHECK C " + std::to_string(series[id].total_rights) + " :" + std::to_string(ssi->second.total_rights) + " - " + std::to_string(ssi->second.hole_start_counts[last_i]) + " - "+ std::to_string(ssi->second.hole_end_counts[last_i]) + "\n");
 
         series[id].total_rights += ssi->second.total_rights + ssi->second.hole_start_counts[last_i] - ssi->second.hole_end_counts[last_i];
         
-        logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
+        //logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
     }
     
 //    #ifdef ALLOW_DEBUG
@@ -208,7 +208,7 @@ void count_raw_node::add_node_initial_index(exon_group* exons, unsigned int i, g
 
         int id = ssi->first;
     
-        logger::Instance()->debug("NODE CHECK D " + std::to_string(next_value[id]) + " - " + std::to_string( ssi->second.hole_end_counts[i]) + " - "+ std::to_string(ssi->second.hole_start_counts[i]) + "\n");
+        //logger::Instance()->debug("NODE CHECK D " + std::to_string(next_value[id]) + " - " + std::to_string( ssi->second.hole_end_counts[i]) + " - "+ std::to_string(ssi->second.hole_start_counts[i]) + "\n");
 
         
         series[id].total_rights += next_value[id];
@@ -232,7 +232,7 @@ void count_raw_node::add_node_initial_index(exon_group* exons, unsigned int i, g
             }
         }
         
-        logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
+        //logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
     }
     
 //    #ifdef ALLOW_DEBUG
@@ -261,7 +261,7 @@ void count_raw_node::add_node_index(count_raw_edge& edge, unsigned int i) {
 
         int id = ssi->first;
   
-       logger::Instance()->debug("NODE CHECK E " + std::to_string(ssi->second.splits[i]) + " - " + std::to_string(ssi->second.splits[i+1]) + "\n");
+       //logger::Instance()->debug("NODE CHECK E " + std::to_string(ssi->second.splits[i]) + " - " + std::to_string(ssi->second.splits[i+1]) + "\n");
 
         
         series[id].total_rights += ssi->second.splits[i];
@@ -290,7 +290,7 @@ void count_raw_node::add_node_index(count_raw_edge& edge, unsigned int i) {
              }
          }
         
-        logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
+       // logger::Instance()->debug("NODE OUT " + std::to_string(series[id].total_lefts) + " - " + std::to_string(series[id].total_rights) + "\n");
 
    }
    

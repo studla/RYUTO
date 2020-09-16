@@ -52,12 +52,15 @@ public:
     
     // denoise the graph
     void denoise_graph(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, int id); 
-    void denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, bool double_denoise);
+    void denoise_graph_guided_step2(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, std::deque<std::map<int, std::pair<double, rpos> > > &input_counts, ListDigraph::NodeMap<float> &ratios);
+    void denoise_graph_guided(std::deque<std::deque<ListDigraph::Arc> > &guides, int id, std::deque<std::map<int, std::pair<double, rpos> > > &input_counts);
+
+    void add_guided_transcript(std::deque<ListDigraph::Arc> &stack, alternative_transcript_collection &cc, ListDigraph &wc, ListDigraph::ArcMap<arc_identifier> &ai, std::map<int, std::pair<double, rpos>> &input_counts, std::string &reference_name, std::string &reference_gene);
     
     // void extract_transcripts_from_flow(std::ostream &gs);
     void extract_transcripts_from_flow();
     
-   bool has_single_exons();
+    bool has_single_exons();
     void add_single_exons();
     
     // we need a shortcut for this
@@ -70,6 +73,9 @@ public:
     void print_graph_debug(std::ostream &os, ListDigraph::NodeMap<count_raw_node> &node_counts, ListDigraph::ArcMap<count_raw_edge> &edge_counts);
     
     void print_graph_debug_copy(std::ostream& os, ListDigraph &wc, ListDigraph::ArcMap<flow_series> &fc, ListDigraph::ArcMap<arc_identifier> &ai, ListDigraph::Node &cs, ListDigraph::Node &ct);
+    
+    void print_exon_counts(std::ostream& os);
+    void single_counts(std::ostream& os);
     
     void print_graph_gs(std::ostream& os,
     ListDigraph &wc,
@@ -202,13 +208,14 @@ protected:
         bool block; // always set if multiple edges in this group
     };
     
-   void find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths); 
+   void find_guide_sources_and_drains(ListDigraph::ArcMap<bool> &guided_saves, std::deque<std::deque<ListDigraph::Arc> > &paths, std::deque<std::pair<std::string, std::string> > &refnames); 
     
    void find_s_t_exons(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &neighbouring);
    void filter_introns(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain);
    void filter_broken_introns(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain);
     
    void prune_sources_and_drains_adjacent_starts(ListDigraph::ArcMap<bool> &guided_saves);
+   void prune_guides_source_and_drain();
 
    void remove_too_short_source_drain(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);
    bool remove_small_low_st(ListDigraph::ArcMap<bool> &guided_saves, ListDigraph::ArcMap<bool> &marked_source, ListDigraph::ArcMap<bool> &marked_drain, ListDigraph::ArcMap<bool> &consecutive_s_t);

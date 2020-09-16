@@ -155,6 +155,11 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
         
         logger::Instance()->info("Finalized "+ *chrom + " ========================= \n");
     
+        std::ofstream exon_count;
+        if (options::Instance()->is_secret_exon_counting()) {
+            exon_count.open(options::Instance()->get_output_dir()+"/"+*chrom + "_exons.count") ;
+        }
+        
         std::map<int, std::ofstream> of_gtf_map;
         std::ofstream of_count(options::Instance()->get_output_dir()+"/"+*chrom + "_input.count") ;
         for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
@@ -199,30 +204,46 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
 
                 base_manager * manager = create_flow_handler(graph, meta, *chrom, base_ids);
                 bool has_graph;
-				if (graph->singled_bin_list.size() < 50000) { // less than 50k atoms
-					has_graph = manager->build_extended_splitgraph(); 
-				} else { 
-					has_graph = manager->build_basic_splitgraph(); 
-				}
-                if (has_graph) {
-                    manager->extract_transcripts_from_flow(); 
-                }
-                if (manager->has_single_exons()) {
-                    manager->add_single_exons();
-                }
-                if (has_graph || manager->has_single_exons()) {
-                    for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
-                        manager->transcripts[*iid].finalize_borders(meta);
-                        group_transcripts[*iid].join(manager->transcripts[*iid]);
+
+                if (options::Instance()->is_secret_exon_counting()) {
+                    has_graph = manager->build_basic_splitgraph();
+                    #pragma omp ordered 
+                    {
+                        if (has_graph) {
+                            manager->print_exon_counts(exon_count);
+                        }
+                        if (manager->has_single_exons()) {
+                            manager->single_counts(exon_count);
+                        }
+                    }
+                } else {
+
+                    if (graph->singled_bin_list.size() < 50000) { // less than 50k atoms
+                            has_graph = manager->build_extended_splitgraph(); 
+                    } else { 
+                            has_graph = manager->build_basic_splitgraph(); 
+                    }
+                    if (has_graph) {
+                        manager->extract_transcripts_from_flow(); 
+                    }
+                    if (manager->has_single_exons()) {
+                        manager->add_single_exons();
+                    }
+                    if (has_graph || manager->has_single_exons()) {
+                        for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
+                            manager->transcripts[*iid].finalize_borders(meta);
+                            group_transcripts[*iid].join(manager->transcripts[*iid]);
+                        }
                     }
                 }
-                
                 delete graph;
                 delete manager;
             }
             
             delete meta;
             
+            #pragma omp ordered 
+            {
             std::string gene_id = std::to_string(c) + "_" + std::to_string(index);
             for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
                 
@@ -238,13 +259,10 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
                     group_transcripts[*iid].filter_transcripts(*iid);
                 }
                 
-                #pragma omp ordered 
-                {
-                    group_transcripts[*iid].print_gtf(of_gtf_map[*iid], gene_id);  
-                }
+
+                group_transcripts[*iid].print_gtf(of_gtf_map[*iid], gene_id);  
             }
-            #pragma omp ordered 
-            {
+
             group_transcripts[main_id].print_count_matrix(of_count, gene_id, ids);
             }
         }
@@ -255,6 +273,9 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
 //        logger::Instance()->error("Post-Discard "+ *chrom + "\n");
 //        print_memory();
 
+        if (options::Instance()->is_secret_exon_counting()) {
+            exon_count.close();
+        }
         
         // concat all result files
         
@@ -349,6 +370,34 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
 
     }
     full.close();
+    
+    if (options::Instance()->is_secret_exon_counting()) {
+        
+        std::string full_exon_count = options::Instance()->get_output_dir()+"/exons.count";
+        std::ofstream full(full_exon_count); 
+        
+        for (greader_name_set<std::string>::iterator name_it = names.begin(); name_it != names.end(); ++name_it) {
+
+            std::string chrp = options::Instance()->get_output_dir()+"/"+*name_it + "_exons.count";
+
+            std::ifstream chrg(chrp); 
+
+            if (chrg.fail() || chrg.peek() == std::ifstream::traits_type::eof()) {
+                std::remove(chrp.c_str());
+                continue;
+            }
+
+            full << chrg.rdbuf();
+            chrg.close();
+
+            std::remove(chrp.c_str());
+
+        }
+        full.close();
+        
+        std::remove(full_name_count.c_str());
+        std::remove(std::string(options::Instance()->get_output_dir()+"/"+"transcripts.gtf").c_str());
+    }
 
 }
 
