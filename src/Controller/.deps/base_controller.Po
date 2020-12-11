@@ -713,14 +713,7 @@ Controller/base_controller.o: Controller/base_controller.cc \
  Controller/../Graph/flow_manager/mincost_flow_square_hcost.h \
  /usr/lib/gcc/x86_64-redhat-linux/6.3.1/include/omp.h \
  Controller/../Logger/logger.h Controller/../Options/options.h \
- Controller/../Datatype_Templates/move.h /usr/include/sys/sysinfo.h \
- /usr/include/linux/kernel.h /usr/include/linux/sysinfo.h \
- /usr/include/linux/types.h /usr/include/asm/types.h \
- /usr/include/asm-generic/types.h /usr/include/asm-generic/int-ll64.h \
- /usr/include/asm/bitsperlong.h /usr/include/asm-generic/bitsperlong.h \
- /usr/include/linux/posix_types.h /usr/include/linux/stddef.h \
- /usr/include/asm/posix_types.h /usr/include/asm/posix_types_64.h \
- /usr/include/asm-generic/posix_types.h \
+ Controller/../Datatype_Templates/move.h \
  /homes/biertruck/thomas/Libraries//include/htslib/sam.h \
  /homes/biertruck/thomas/Libraries//include/htslib/hts.h \
  /homes/biertruck/thomas/Libraries//include/htslib/hts_defs.h \
@@ -2278,34 +2271,6 @@ Controller/../Logger/logger.h:
 Controller/../Options/options.h:
 
 Controller/../Datatype_Templates/move.h:
-
-/usr/include/sys/sysinfo.h:
-
-/usr/include/linux/kernel.h:
-
-/usr/include/linux/sysinfo.h:
-
-/usr/include/linux/types.h:
-
-/usr/include/asm/types.h:
-
-/usr/include/asm-generic/types.h:
-
-/usr/include/asm-generic/int-ll64.h:
-
-/usr/include/asm/bitsperlong.h:
-
-/usr/include/asm-generic/bitsperlong.h:
-
-/usr/include/linux/posix_types.h:
-
-/usr/include/linux/stddef.h:
-
-/usr/include/asm/posix_types.h:
-
-/usr/include/asm/posix_types_64.h:
-
-/usr/include/asm-generic/posix_types.h:
 
 /homes/biertruck/thomas/Libraries//include/htslib/sam.h:
 

@@ -367,7 +367,7 @@ public:
     static bool bar_negligible_edge_vote(ListDigraph::Node node, ListDigraph &wc, ListDigraph::ArcMap<flow_series> &fs, std::set<int>& ip_ids, int guiding_id, ListDigraph::ArcMap<bool> &barred, float ratio, ListDigraph::Arc &barc, float &value, std::unordered_set<int> &block_delete);
   
 
-    static void erase_arc(ListDigraph &wc, ListDigraph::Arc arc, ListDigraph::ArcMap<flow_series>& fsc,  std::set<int>& ip_ids, ATC &transcripts);
+    static void erase_arc(ListDigraph &wc, ListDigraph::Arc arc, ListDigraph::ArcMap<flow_series>& fsc, ListDigraph::ArcMap<arc_identifier> &ai,  std::set<int>& ip_ids, ATC &transcripts);
     
     static void unravel_evidence_path_left(int left, int right, int guiding,
             ListDigraph &wc, 

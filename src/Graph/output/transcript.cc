@@ -7,7 +7,7 @@
 
 #include "transcript.h"
 
-transcript::transcript() : cycle_id_in(0), cycle_id_out(0), guided(false), guide_grouped(false), ignore_guide_gene(false) {
+transcript::transcript() : cycle_id_in(0), cycle_id_out(0), guided(false), guide_grouped(false), ignore_guide_gene(false), post_filter_regional_group(0) {
 }
 
 
@@ -122,7 +122,7 @@ void transcript::print_count_matrix_entry(std::ostream &os, std::string &gene_id
 
     if (guided) {
         if (ignore_guide_gene) {
-            os << "ryuto." << gene_id << "\t"; 
+            os << "ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "\t"; 
         } else {
             os << guide_gene << "\t";
         }
@@ -132,9 +132,9 @@ void transcript::print_count_matrix_entry(std::ostream &os, std::string &gene_id
         if (guide_grouped) {
               os << guide_gene << "\t";
         } else {
-             os << "ryuto." << gene_id << "\t";
+             os << "ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group)  << "\t";
         }
-        os  << "ryuto." << gene_id << "." << std::to_string(trans_id) << "\t" ;
+        os  << "ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "." << std::to_string(trans_id) << "\t" ;
     }
 
     os << std::to_string(length);
@@ -161,6 +161,7 @@ void transcript::print_count_matrix_entry(std::ostream &os, std::string &gene_id
     os << "\n";
 }
 
+
 void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigned int trans_id, int main_input_id) {
         
     // print transcript line first
@@ -168,8 +169,8 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
     os << std::to_string(exons.begin()->first) << "\t" << std::to_string(exons.rbegin()->second) << "\t";
     os << "0" << "\t"; // TODO: create a SCORE?
     os << strand << "\t" << "." << "\t";
-    os << "gene_id \"ryuto." << gene_id << "\"; ";
-    os << "transcript_id \"ryuto." << gene_id << "." << std::to_string(trans_id) << "\"; ";
+    os << "gene_id \"ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "\"; ";
+    os << "transcript_id \"ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "." << std::to_string(trans_id) << "\"; ";
     os << "FPKM \"" << std::to_string(series[main_input_id].fpkm) << "\"; ";
     os << "cov \"" << std::to_string(series[main_input_id].mean) << "\"; ";
     os << "uniform_cov \"" << std::to_string(series[main_input_id].flow) << "\";";
@@ -207,15 +208,15 @@ void transcript::print_gtf_entry(std::ostream &os, std::string &gene_id, unsigne
         os << "0" << "\t"; // TODO: create a SCORE?
         os << strand << "\t" << "." << "\t";
         
-        os << "gene_id \"ryuto." << gene_id << "\"; ";
-        os << "transcript_id \"ryuto." << gene_id << "." << std::to_string(trans_id) << "\"; ";
+        os << "gene_id \"ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "\"; ";
+        os << "transcript_id \"ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "." << std::to_string(trans_id) << "\"; ";
 //        os << "FPKM \"" << std::to_string(fpkm) << "\"; ";
 
         if (cycle_id_in != 0) {
-           os << "cycle_in \"ryuto." << gene_id << "." << std::to_string(trans_id) << "/" << std::to_string(cycle_id_in) << "\"; ";
+           os << "cycle_in \"ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "." << std::to_string(trans_id) << "/" << std::to_string(cycle_id_in) << "\"; ";
         }
         if (cycle_id_out != 0) {
-           os << "cycle_out \"ryuto." << gene_id << "." << std::to_string(trans_id) << "/" << std::to_string(cycle_id_out) << "\"; ";
+           os << "cycle_out \"ryuto." << gene_id << "_" << std::to_string(post_filter_regional_group) << "." << std::to_string(trans_id) << "/" << std::to_string(cycle_id_out) << "\"; ";
         }
 //        os << "cov \"" << std::to_string(mean) << "\"; ";
 //        os << "uniform_cov \"" << std::to_string(flow) << "\"; ";

@@ -87,7 +87,7 @@ bool operator>= ( exon_group& g1,  exon_group& g2){
     return true;
 }
 
-bool operator<(paired_exon_group& p1, paired_exon_group &p2)
+bool operator<(const paired_exon_group& p1, const paired_exon_group &p2)
 {
      // this is only used because of right side unordered map inconsistencies in bam_reader, hence incomplete sorter
     return p1.right_read->bin_mask.true_smaller(p2.right_read->bin_mask);

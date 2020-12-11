@@ -42,8 +42,7 @@ void options::init(int argc, char **argv) {
     ("guide-trustlevel", po::value<unsigned int>(), "Level of trust in the given guides. 0 no trust. 100 maximal trust. Abstract non-linear variable! (default: 20)")
     ("pool,w", po::value<unsigned int>(), "Number of consecutive inputs to merge internally in groups.")
     //("diff-exp-groups,e", po::value<std::string>(), "Input grouping for differential expression by index of inputs, e.g. '1-2;3-4'; or '1;2;' .")
-    ("nc", po::value<unsigned int>(), "Number of chromosomes processed in parallel. (# of threads = nc * ng; default: 1)")
-    ("ng", po::value<unsigned int>(), "Number of graph per chromosome processed in parallel. (# of threads = nc * ng; default: 1)")
+    ("threads,t", po::value<unsigned int>(), "Number of threads to use in parallel. (default: 1)")
     ("out-dir,o", po::value<std::string>(), "The output directory for all data. (default: ./)")
     ("library-type,l", po::value<std::string>(), "fr-unstranded, fr-firststrand, fr-secondstrand, ff-unstranded, ff-firststrand, or ff-secondstrand according to TopHat and Cufflinks definitions. (default: fr-unstranded)")
     ("unstranded,s", "Add this option to ignore strand information and call everything on + strand. (default: none)")
@@ -58,6 +57,8 @@ void options::init(int argc, char **argv) {
     general_o.add_options()
     ("no-parse-heuristic", "If several input files are used, use this to disable the heuristic to merge fragments. Increases needed RAM. (default: use heuristic)")
     ("compute-singles", "If several input files are used, use this to compute transcripts for all individual transcripts. (default: only joined output)")
+    ("nc", po::value<unsigned int>(), "Number of chromosomes processed in parallel. (# of threads = nc * ng; default: 1)")
+    ("ng", po::value<unsigned int>(), "Number of graph per chromosome processed in parallel. (# of threads = nc * ng; default: 1)")
     //("print-graphs", "Produce files with intermediate graphs of all genes for each chromosome. (default: no)")
     ;
     
@@ -87,6 +88,8 @@ void options::init(int argc, char **argv) {
     //("arc-filter-percentage", po::value<unsigned int>(), "Arcs accounting for less than this percentage of capacity on a node are removed. (default: 8%)" )
     ("min-junction-coverage", po::value<unsigned int>(), "Minimal coverage to consider intron junctions in the graph. (default: 1)" )
     ("min-junction-anchor", po::value<unsigned int>(), "Minimal length of bp evidence needed left and right of a junction to consider it. (default: 10)" )
+    ("group-vote-low", po::value<unsigned int>(), "Multi assembly percentage required for simple consensus voting (default: 30%)" )
+    ("group-vote-high", po::value<unsigned int>(), "Multi assembly percentage required for super-majority consensus voting (default: 60%)" )
     ;
     
     po::options_description filter_o("Transcript output filter options");
@@ -135,7 +138,7 @@ void options::init(int argc, char **argv) {
         std::cout << graph_filter_o << std::endl;
         std::cout << filter_o << std::endl;
         std::cout << tech_o << std::endl;
-        std::cout << "(Version 1.5m)" << std::endl;
+        std::cout << "(Version 1.6)" << std::endl;
         std::exit(0);
     }
     
@@ -243,28 +246,33 @@ void options::init(int argc, char **argv) {
         }
         
    // }
-    
-    if (vm.count("nc")){
-        parallel_chromosomes = vm["nc"].as<unsigned int>();
         
-        if (parallel_chromosomes < 1) {
-            logger::Instance()->error("Number of threads nc must be > 0.");
-            std::exit(1);
-        }
-        
+    if (vm.count("threads")){
+       parallel_chromosomes = vm["threads"].as<unsigned int>();
+       parallel_graphs = 1;
     } else {
-        parallel_chromosomes = 1;
-    }
-    if (vm.count("ng")){
-        parallel_graphs = vm["ng"].as<unsigned int>();
-        
-        if (parallel_graphs < 1) {
-            logger::Instance()->error("Number of threads ng must be > 0.");
-            std::exit(1);
+        if (vm.count("nc")){
+            parallel_chromosomes = vm["nc"].as<unsigned int>();
+
+            if (parallel_chromosomes < 1) {
+                logger::Instance()->error("Number of threads nc must be > 0.");
+                std::exit(1);
+            }
+
+        } else {
+            parallel_chromosomes = 1;
         }
-        
-    } else {
-        parallel_graphs = 1;
+        if (vm.count("ng")){
+            parallel_graphs = vm["ng"].as<unsigned int>();
+
+            if (parallel_graphs < 1) {
+                logger::Instance()->error("Number of threads ng must be > 0.");
+                std::exit(1);
+            }
+
+        } else {
+            parallel_graphs = 1;
+        }
     }
     
     if (vm.count("out-dir")) {
@@ -375,6 +383,13 @@ void options::init(int argc, char **argv) {
          min_junction_anchor = vm["min-junction-anchor"].as<unsigned int>();
     }
     
+    if (vm.count("group-vote-low")) {
+        vote_percentage_low = vm["group-vote-low"].as<unsigned int>();
+    }
+    if (vm.count("group-vote-high")) {
+        vote_percentage_high = vm["group-vote-high"].as<unsigned int>();
+    }
+        
     if (vm.count("percent-filter")) {
          percent_filter = vm["percent-filter"].as<unsigned int>();
     }    

@@ -3,7 +3,10 @@
 
 #include <sam.h>
 #include <hts.h>
+
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 #include "Options/options.h"
 #include "Reader/bam_reader.h"

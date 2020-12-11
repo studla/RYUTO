@@ -7,14 +7,10 @@ ryuto --help
 ```
 to see options.
 
-# Testdata
-
-You may download the alignments of real data used for publication [here](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments2.tar.gz) (Size: 82GB).
-
 # Pre-Compiled
 Operation System | Version | Binary
  ---------------- | ------- | ------
-Generic Linux, dynamic linked    | -       | [binary](https://github.com/studla/RYUTO/releases/download/1.4m_a/ryuto)
+Generic Linux, dynamic linked    | -       | [binary](https://github.com/studla/RYUTO/releases/download/1.6/ryuto)
 
 All users have to install g++ in order for the pre-compiled binaries to work.
 e.g, for Fedora use:
@@ -23,24 +19,26 @@ sudo dnf install gcc-c++
 ```
 
  <!---The generic version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting C11.--->
+gcc version 9.3.1
 
 # Installation
 Download the newest source code from: https://github.com/studla/RYUTO
 
 The following additional libraries need to installed in order to run Ryuto:
 zlib
-(openmp)
+openmp
 boost
 htslib
+
+Ryuto provides the following packages with simplified installers.
 clp
 lemon
 
 Compile Ryuto with:
 ```
-./configure [options]
-make
+./build_all.sh --prefix=[Install Path] [options]
 ```
-The compiled binary can then be found in the `src` subfolder.
+The compiled binary is installed to the specified prefix.
 
 ## ZLIB
 
@@ -64,7 +62,7 @@ Ubuntu users may alternatively run:
 sudo apt-get install zlib1g-dev
 ```
 
-You may specify a non-standard zlib installation with --with-zlib=/path/to/your/zlib to the Ryuto ./configure call.
+You may specify a non-standard zlib installation with --with-zlib=/path/to/your/zlib to the Ryuto ./build_all.sh call.
 
 ## OpenMP
 
@@ -84,7 +82,7 @@ On Ubuntu you may run:
 sudo apt-get install libboost-all-dev
 ```
 
-If installed to a non-standard path, add with --with-boost=/path/to/your/boost to the Ryuto ./configure call.
+If installed to a non-standard path, add with --with-boost=/path/to/your/boost to the Ryuto ./build_all.sh call.
 
 ## Install htslib
 
@@ -101,40 +99,24 @@ You may alternatively use the following call if bz2 is not installed.
 ./configure --disable-bz2 --disable-lzma
 ```
 
-If installed to a non-standard path, add with --with-htslib=/path/to/your/htslib to the Ryuto ./configure call.
+If installed to a non-standard path, add with --with-htslib=/path/to/your/htslib to the Ryuto ./build_all.sh call.
 
-## Install Clp
+## Install Clp and Lemon
 
-Download and install clp. Please use the version provided in the `libraries_to_install` subfolder.
-You may find details under (https://projects.coin-or.org/Clp).
+Clp and Lemon are automatically built and during the ./build_all.sh call. You can find both in the "extern" subfolder.
 
-Use the following call to install Clp to a custom location
+Lemon needs to be linked to CLP if you want to provide those libraries yourself.
+If installed to a non-standard path, add with --with-clp=/path/to/your/clp --with-lemon=/path/to/your/lemon and build the project manually.
+
+Compile Ryuto with:
 ```
-./configure --disable-bzlib --disable-zlib --prefix=/path/to/your/clp
+./configure [options]
 make
-make install
 ```
 
-If installed to a non-standard path, add with --with-clp=/path/to/your/clp to the Ryuto ./configure call..
+# Testdata
 
-## Install Lemon
-
-Download and install lemon after clp. Please use the version provided in the `libraries_to_install` subfolder.
-The provided version contains a simplified makefile. If you want to use your own version of lemon,
-please make sure it is linked appropriately to CBC, CLP and COIN-UTILS.
-You may find details under (http://lemon.cs.elte.hu/trac/lemon).
-
-Install using
-```
-mkdir build
-cd build
-cmake -DLEMON_DEFAULT_LP=CLP -DCOIN_ROOT_DIR=/path/to/your/Clp ..
-make
-make install
-```
-
-If installed to a non-standard path, add with --with-lemon=/path/to/your/lemon to the Ryuto ./configure call.
-
+You may download the alignments of real data used for the first publication [here](http://silo.bioinf.uni-leipzig.de/thomas/ryuto_real_alignments2.tar.gz) (Size: 82GB).
 
 
 

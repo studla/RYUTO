@@ -14,7 +14,9 @@
 #include <tuple>
 #include <stdlib.h>
 
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 #include "bam_reader.h"
 #include "Datatype_Templates/misc_types.h"
@@ -227,7 +229,7 @@ bool bam_reader::populate_next_group(const std::string &chrom_name, greader_list
     }
   
     if (options::Instance()->is_stranded()) {
-        logger::Instance()->info("Compute Avrg " + std::to_string(it->fwd->average_read_lenghts) + " " + std::to_string(it->bwd->average_read_lenghts)  +".\n");
+//        logger::Instance()->info("Compute Avrg " + std::to_string(it->fwd->average_read_lenghts) + " " + std::to_string(it->bwd->average_read_lenghts)  +".\n");
         if (it->fwd->average_read_lenghts < 1.0) {
             meta->avrg_read_length = it->bwd->average_read_lenghts ;
         } else if (it->bwd->average_read_lenghts < 1.0) {
@@ -242,7 +244,7 @@ bool bam_reader::populate_next_group(const std::string &chrom_name, greader_list
     // split up components
     split_independent_component(&*ob, all_connected);
     
-    logger::Instance()->info("Populate Group " + chrom_name + " " + std::to_string((*ob->fossil_exons.ref().begin())->start  ) + "-" + std::to_string((*ob->fossil_exons.ref().rbegin())->end) +".\n");
+//    logger::Instance()->info("Populate Group " + chrom_name + " " + std::to_string((*ob->fossil_exons.ref().begin())->start  ) + "-" + std::to_string((*ob->fossil_exons.ref().rbegin())->end) +".\n");
 
     return true;
 }
@@ -250,7 +252,7 @@ bool bam_reader::populate_next_group(const std::string &chrom_name, greader_list
 
 void bam_reader::populate_next_single(const std::string &chrom_name, connected *ob, pre_graph* raw, exon_meta* meta) {
     
-    logger::Instance()->info("Populate Single " + chrom_name + " " + std::to_string((*ob->fossil_exons.ref().begin())->start  ) + "-" + std::to_string((*ob->fossil_exons.ref().rbegin())->end) +".\n");
+//    logger::Instance()->info("Populate Single " + chrom_name + " " + std::to_string((*ob->fossil_exons.ref().begin())->start  ) + "-" + std::to_string((*ob->fossil_exons.ref().rbegin())->end) +".\n");
 
     // set size, and add in mean
     meta->set_size(ob->fossil_exons.ref().size());
@@ -1378,7 +1380,7 @@ greader_list<chromosome::raw_position >::iterator bam_reader::cluster( greader_l
             if (current + extend < it->position ) { // *it > current by sorting
                 // end of cluster found, process values in temp
                 
-                if (evidence && ( indices.size() * 100 / total_inputs >= 30  ) ) {
+                if (evidence && ( indices.size() * 100 / total_inputs >= options::Instance()->get_vote_percentage_low()  ) ) {
                     DKMeans(basic_grouping, out, extend);  
                 }
                 basic_grouping.clear();
@@ -1564,7 +1566,7 @@ void bam_reader::DKMeans( std::vector<std::pair<rpos,unsigned int> > &in,  gread
                 n_xj += in[j].second;
                
                 if (costs[(k-1) * size + j -1] >= 0) {
-                    if (min = -1) {
+                    if (min == -1) {
                         min = j;
                         min_cost = d + costs[(k-1) * size + j -1];
                     } else {
@@ -1885,13 +1887,15 @@ void bam_reader::filter_clusters(chromosome* chrom, greader_list<rpos> &starts, 
             sum += se.total_count;
             primary = primary || se.primary;
         }
+        #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Junction Start ------------ at " + std::to_string(mi->first) + "\n");
+        #endif
         for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = mi->second.begin(); si != mi->second.end(); ++si) {
             
             std::pair<rpos, rpos> pos = si->first;
             s_elem& se = si->second;
             
-            if ( ( total_inputs > 1 && (se.sources < 2 || se.sources * 100 / total_inputs < 30) ) 
+            if ( ( total_inputs > 1 && (se.sources < 2 || se.sources * 100 / total_inputs < options::Instance()->get_vote_percentage_low()) ) 
              || (se.total_count <= max_del_count && max_count > evidence_min && max_count > se.total_count * evidence_factor) 
              ||  sum < options::Instance()->get_min_junction_coverage() 
              || !primary ){
@@ -1923,13 +1927,15 @@ void bam_reader::filter_clusters(chromosome* chrom, greader_list<rpos> &starts, 
             sum += se.total_count;
             primary = primary || se.primary;
         }
+        #ifdef ALLOW_DEBUG
         logger::Instance()->debug("Junction End ------------ at " + std::to_string(mi->first) + "\n");
+        #endif
         for (std::map< std::pair<rpos, rpos>, s_elem >::iterator si = mi->second.begin(); si != mi->second.end(); ++si) {
             
             std::pair<rpos, rpos> pos = si->first;
             s_elem& se = si->second;
             
-            if ( ( total_inputs > 1 && (se.sources < 2 || se.sources * 100 / total_inputs < 30) ) 
+            if ( ( total_inputs > 1 && (se.sources < 2 || se.sources * 100 / total_inputs < options::Instance()->get_vote_percentage_low()) ) 
              || (se.total_count <= max_del_count && max_count > evidence_min && max_count > se.total_count * evidence_factor) 
              ||  sum < options::Instance()->get_min_junction_coverage() 
              || !primary ){

@@ -6,18 +6,19 @@
  */
 
 #include "base_controller.h"
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <set>
 #include <fstream>
 #include "../Logger/logger.h"
 #include "../Options/options.h"
 #include <cstdio>
 #include "../Datatype_Templates/move.h"
-#include <sys/stat.h>
 
-
-#include <sys/types.h>
-#include <sys/sysinfo.h>
+//#include <sys/stat.h>
+//#include <sys/types.h>
+//#include <sys/sysinfo.h>
 
 #include <sam.h>
 #include <hts.h>
@@ -48,28 +49,28 @@
 #include <fstream>
 #include <unistd.h>
 
-void print_memory()
-{
-    double vm_usage     = 0.0;
-    double resident_set = 0.0;
-
-    // the two fields we want
-    unsigned long vsize;
-    long rss;
-    {
-        std::string ignore;
-        std::ifstream ifs("/proc/self/stat", std::ios_base::in);
-        ifs >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore
-                >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore
-                >> ignore >> ignore >> vsize >> rss;
-    }
-
-    long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024; // in case x86-64 is configured to use 2MB pages
-    vm_usage = vsize / 1024.0;
-    resident_set = rss * page_size_kb;
-    
-    logger::Instance()->error("VirtualTotal " + std::to_string(vm_usage) + " PhysUsed " + std::to_string(resident_set) + "\n");
-}
+//void print_memory()
+//{
+//    double vm_usage     = 0.0;
+//    double resident_set = 0.0;
+//
+//    // the two fields we want
+//    unsigned long vsize;
+//    long rss;
+//    {
+//        std::string ignore;
+//        std::ifstream ifs("/proc/self/stat", std::ios_base::in);
+//        ifs >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore
+//                >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore >> ignore
+//                >> ignore >> ignore >> vsize >> rss;
+//    }
+//
+//    long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024; // in case x86-64 is configured to use 2MB pages
+//    vm_usage = vsize / 1024.0;
+//    resident_set = rss * page_size_kb;
+//    
+//    logger::Instance()->error("VirtualTotal " + std::to_string(vm_usage) + " PhysUsed " + std::to_string(resident_set) + "\n");
+//}
 
 base_controller::base_controller() {
 }
@@ -159,6 +160,8 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
         if (options::Instance()->is_secret_exon_counting()) {
             exon_count.open(options::Instance()->get_output_dir()+"/"+*chrom + "_exons.count") ;
         }
+        
+        std::ofstream of_errors(options::Instance()->get_output_dir()+"/"+*chrom + "_input.errcount") ;
         
         std::map<int, std::ofstream> of_gtf_map;
         std::ofstream of_count(options::Instance()->get_output_dir()+"/"+*chrom + "_input.count") ;
@@ -264,6 +267,8 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
             }
 
             group_transcripts[main_id].print_count_matrix(of_count, gene_id, ids);
+            group_transcripts[main_id].print_error_matrix(of_errors, gene_id, ids);
+            
             }
         }
         
@@ -370,6 +375,42 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
 
     }
     full.close();
+    
+    std::string full_name_err = options::Instance()->get_output_dir()+"/transcripts.errcount";
+    std::ofstream fullerr(full_name_err) ; 
+    
+    fullerr << "Start\tEnd\tFeature";
+
+    str = files.begin();
+    pi = 1;
+    while (str != files.end()) {
+         fullerr << "\tI" << pi ;
+         for (unsigned int i = 0; i < options::Instance()->get_pooling() && str != files.end(); ++i) {
+            fullerr << ":" << getFileName(*str);
+            ++str;
+         }
+         ++pi;
+    }
+    fullerr << "\n";
+    
+    for (greader_name_set<std::string>::iterator name_it = names.begin(); name_it != names.end(); ++name_it) {
+
+        std::string chrp = options::Instance()->get_output_dir()+"/"+*name_it + "_input.errcount";
+
+        std::ifstream chrg(chrp); 
+
+        if (chrg.fail() || chrg.peek() == std::ifstream::traits_type::eof()) {
+            std::remove(chrp.c_str());
+            continue;
+        }
+
+        fullerr << chrg.rdbuf();
+        chrg.close();
+
+       std::remove(chrp.c_str());
+
+    }
+    fullerr.close();
     
     if (options::Instance()->is_secret_exon_counting()) {
         

@@ -620,7 +620,7 @@ void gffReader::add_one_into_chromosome(std::deque<transcript_info *> &region, c
 }
 
 
-bool gffReader::transcript_info::operator< ( const transcript_info& t2) {
+bool gffReader::transcript_info::operator< ( const transcript_info& t2) const {
     
     if (start != t2.start ) {
         return start < t2.start;

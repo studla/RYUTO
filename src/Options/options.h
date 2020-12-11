@@ -334,6 +334,14 @@ public:
         return min_transcript_length_extension;
     }
     
+    unsigned int get_vote_percentage_low() {
+        return vote_percentage_low;
+    }
+    
+    unsigned int get_vote_percentage_high() {
+        return vote_percentage_high;
+    }
+       
     // internal
     unsigned int get_coverage_change_limit() {
         return coverage_change_limit;
@@ -347,14 +355,6 @@ public:
     unsigned int get_coverage_bias_limit() {
         return coverage_bias_limit;
     }
-    
-//    delete_on get_delete_vote_option() {
-//        return delete_vote;
-//    }
-    
-//    unsigned int get_delete_vote_percentage() {
-//        return delete_vote_percentage;
-//    }
     
     bool vote(unsigned int vote_count, unsigned int total_count, delete_on delete_vote) {
         bool result;
@@ -373,7 +373,17 @@ public:
                 break;    
         } 
         return result;
-    }
+    }    
+    
+//    delete_on get_delete_vote_option() {
+//        return delete_vote;
+//    }
+    
+//    unsigned int get_delete_vote_percentage() {
+//        return delete_vote_percentage;
+//    }
+    
+
 };
 
 #endif	/* OPTIONS_H */

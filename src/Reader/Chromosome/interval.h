@@ -30,6 +30,8 @@ bool operator< (const interval& e1, const interval& e2);
 
 const struct junction_sorter
 {
+    junction_sorter() {};
+    
     inline bool operator() (const interval& e1, const interval& e2) {
         
         if (e1.left < e2.left) {
@@ -47,6 +49,7 @@ const struct junction_sorter
 
 const struct junction_sorter_left
 {
+    junction_sorter_left() {};
     inline bool operator() (const interval& e1, const interval& e2) {
         
         return e1.left < e2.left;
@@ -55,6 +58,7 @@ const struct junction_sorter_left
 
 const struct junction_sorter_right
 {
+    junction_sorter_right() {};
     inline bool operator() (const interval& e1, const interval& e2) {
         
         return e1.right < e2.right;

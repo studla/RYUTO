@@ -28,6 +28,10 @@ int alternative_transcript_collection::size() {
 
 void alternative_transcript_collection::join(alternative_transcript_collection &t) {
      _MOVE_RANGE(t.transcripts.begin(), t.transcripts.end(), std::back_inserter(transcripts));
+     for (std::map<int, capacity_type>::iterator tfi = t.total_flow_error.begin(); tfi != t.total_flow_error.end(); ++tfi) {
+         total_flow_error[tfi->first] += tfi->second;
+     }
+     _MOVE_RANGE(t.flow_error.begin(), t.flow_error.end(), std::back_inserter(flow_error));
 }
 
 void alternative_transcript_collection::print(std::ostream& os) {
@@ -51,10 +55,38 @@ void alternative_transcript_collection::print_gtf(std::ostream &os, std::string 
     }
 }
 
-void alternative_transcript_collection::finalize_borders(exon_meta* meta) {
-     for (graph_list<lazy<transcript> >::iterator it = transcripts.begin(); it!= transcripts.end(); ++it) {
-        (*it)->finalize_borders(meta);
-     } 
+void alternative_transcript_collection::finalize_borders(exon_meta* me) {
+
+    for (graph_list<lazy<transcript> >::iterator it = transcripts.begin(); it!= transcripts.end(); ++it) {
+        (*it)->finalize_borders(me);
+    } 
+    
+    for (std::map<unsigned int, std::map<int, capacity_type> >::iterator fi = exon_flow_error.begin(); fi!= exon_flow_error.end(); ++fi) {
+        unsigned int pos = fi->first;
+        
+        flow_error.push_back(lazy<flow_error_t>());
+        flow_error.back()->is_exon = true;
+        flow_error.back()->start = me->exons[pos].left;
+        flow_error.back()->end = me->exons[pos].right;
+        flow_error.back()->errors.insert(fi->second.begin(), fi->second.end());
+        flow_error.back()->chromosome = me->chromosome;
+        flow_error.back()->strand = me->strand;
+        
+    }
+    
+    for (std::map<std::pair<unsigned int, unsigned int>, std::map<int, capacity_type> >::iterator fi = junction_flow_error.begin(); fi!= junction_flow_error.end(); ++fi) {
+        unsigned int p1 = fi->first.first;
+        unsigned int p2 = fi->first.second;
+        
+        flow_error.push_back(lazy<flow_error_t>());
+        flow_error.back()->is_exon = false;
+        flow_error.back()->start = me->exons[p1].right;
+        flow_error.back()->end = me->exons[p2].left;
+        flow_error.back()->errors.insert(fi->second.begin(), fi->second.end());
+        flow_error.back()->chromosome = me->chromosome;
+        flow_error.back()->strand = me->strand;
+    } 
+     
 }
 
 void alternative_transcript_collection::print_count_matrix(std::ostream &os, std::string &gene_id, std::set<int> &ids) {
@@ -66,6 +98,26 @@ void alternative_transcript_collection::print_count_matrix(std::ostream &os, std
     }
 }
 
+void alternative_transcript_collection::print_error_matrix(std::ostream &os, std::string &gene_id, std::set<int> &ids) {
+    
+    for (graph_list<lazy<flow_error_t> >::iterator it = flow_error.begin(); it!= flow_error.end(); ++it) {
+        os << (*it)->chromosome << "\t" << (*it)->strand << "\t" << std::to_string((*it)->start) << "\t" << std::to_string((*it)->end) << "\t";
+        if ((*it)->is_exon) {
+            os << "Exon";
+        } else {
+            os << "Junction";
+        }
+        for(std::set<int>::iterator ii = ids.begin(); ii!= ids.end(); ++ii) {
+            if (*ii == -1) {
+                continue;
+            }
+            
+            os << "\t" << std::to_string((*it)->errors[*ii]);
+        }
+        os << "\n";
+    }
+    
+}
 
 void alternative_transcript_collection::compute_region(std::list<std::pair<rpos, rpos> > &regions) {
 
@@ -121,7 +173,8 @@ void alternative_transcript_collection::compute_region(std::list<std::pair<rpos,
 
 void alternative_transcript_collection::vote(int id, graph_list<lazy<transcript> > &keep, std::list<std::pair<rpos, rpos> > &regions) {
 
-    for (std::list<std::pair<rpos, rpos>>::iterator reg_it = regions.begin(); reg_it != regions.end(); ++reg_it) {
+    unsigned int reg_count = 0;
+    for (std::list<std::pair<rpos, rpos>>::iterator reg_it = regions.begin(); reg_it != regions.end(); ++reg_it, ++reg_count) {
     
         
         #ifdef ALLOW_DEBUG
@@ -163,8 +216,11 @@ void alternative_transcript_collection::vote(int id, graph_list<lazy<transcript>
         logger::Instance()->debug("Base_values " + std::to_string(uniform_max) + " " + std::to_string(mean_max) + ".\n");
         #endif
         
+        
         for (graph_list<lazy<transcript> >::iterator it = regional.begin(); it!= regional.end(); ++it) {
 
+            (*it)->post_filter_regional_group = reg_count;
+            
             rpos length = (*it)->length;
             unsigned int exon_count = (*it)->exons.size();
    
@@ -211,7 +267,8 @@ void alternative_transcript_collection::vote(int id, graph_list<lazy<transcript>
 
 void alternative_transcript_collection::multi_vote(std::set<int> &ids, graph_list<lazy<transcript> > &keep, std::list<std::pair<rpos, rpos> > &regions) {
 
-    for (std::list<std::pair<rpos, rpos>>::iterator reg_it = regions.begin(); reg_it != regions.end(); ++reg_it) {
+    unsigned int reg_count = 0;
+    for (std::list<std::pair<rpos, rpos>>::iterator reg_it = regions.begin(); reg_it != regions.end(); ++reg_it, ++reg_count) {
             
         #ifdef ALLOW_DEBUG
         logger::Instance()->debug("GTF Region " + std::to_string(reg_it->first) + " " + std::to_string(reg_it->second) + ".\n");
@@ -285,6 +342,8 @@ void alternative_transcript_collection::multi_vote(std::set<int> &ids, graph_lis
 
         for (graph_list<lazy<transcript> >::iterator it = regional.begin(); it!= regional.end(); ++it) {
             
+            (*it)->post_filter_regional_group = reg_count;
+            
               #ifdef ALLOW_DEBUG
                logger::Instance()->debug("Transcript: "+it->ref().found_edge.to_string() + "\n");
                #endif 
@@ -337,7 +396,7 @@ void alternative_transcript_collection::multi_vote(std::set<int> &ids, graph_lis
                             vote_count += 1;
                 }
             }
-            if (vote_count * 100 / ids.size() > 30) {
+            if (vote_count * 100 / ids.size() > options::Instance()->get_vote_percentage_low()) {
                 keep.push_back(*it);
                 #ifdef ALLOW_DEBUG
                 logger::Instance()->debug("Keep\n");

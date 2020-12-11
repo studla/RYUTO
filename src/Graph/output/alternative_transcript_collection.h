@@ -24,12 +24,33 @@ public:
     int input_main_id;
     
     std::map<int, capacity_type> total_flow_error;
-    capacity_type total_filtered_flow;
+    
+    // directly filled as finalized
+    std::map<unsigned int, std::map<int, capacity_type> > exon_flow_error;
+    std::map<std::pair<unsigned int, unsigned int>, std::map< int, capacity_type> > junction_flow_error;
+ 
+    //capacity_type total_filtered_flow;
+    
+    // finalized errors
+    struct flow_error_t {
+        
+        flow_error_t() {}
+        bool is_exon;
+        rpos start;
+        rpos end;
+        std::string chromosome;
+        std::string strand;
+        
+        gmap<int, capacity_type> errors;               
+    };
+    graph_list<lazy<flow_error_t> > flow_error;
+    
     
     void print(std::ostream &os);
     void print_gtf(std::ostream &os, std::string &gene_id);
     
     void print_count_matrix(std::ostream &os, std::string &gene_id, std::set<int> &ids);
+    void print_error_matrix(std::ostream &os, std::string &gene_id, std::set<int> &ids);
     
     void finalize_borders(exon_meta* meta); 
     void filter_transcripts(int id);

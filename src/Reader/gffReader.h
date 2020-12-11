@@ -41,7 +41,7 @@ private:
             // start at 0 and keep it tight!
             std::set<std::pair<rpos, rpos> > exons;
             
-            bool operator< ( const transcript_info& t2);
+            bool operator< ( const transcript_info& t2) const;
             
     };
     

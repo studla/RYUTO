@@ -49,6 +49,8 @@ public:
     std::string guide_reference;
     std::string guide_gene;
 
+    unsigned int post_filter_regional_group;
+    
     // finalized values
     std::deque<std::pair<rpos, rpos> > exons;
     rpos length;

@@ -587,7 +587,7 @@ void base_manager::extract_transcripts_from_flow() {
 
             ListDigraph::Node target = gc.target(arc);
             ListDigraph::Node source = gc.source(arc);
-            erase_arc(gc, arc, fsc, input_ids, transcripts[guiding]);
+            erase_arc(gc, arc, fsc, aic, input_ids, transcripts[guiding]);
             if (target != t) {
                 ListDigraph::OutArcIt o(gc,target);
                 ListDigraph::InArcIt i(gc,target);
@@ -2730,7 +2730,7 @@ for(std::map<int , Lp::Expr>::iterator ei = edge_constraints.begin(); ei != edge
         double guide_current = lp.primal(*gc_it); //*art_i;
         if (guide_current < 0) guide_current = 0; // rare wiggle barely under 0 by floating point
 
-        logger::Instance()->debug("Guide Cap " + std::to_string(guide_current) + "\n");
+       // logger::Instance()->debug("Guide Cap " + std::to_string(guide_current) + "\n");
 
         std::deque<ListDigraph::Arc>::iterator a_it = g_it->begin();
         mean += guide_current;
@@ -2765,7 +2765,7 @@ for(std::map<int , Lp::Expr>::iterator ei = edge_constraints.begin(); ei != edge
             //    max = guide_current;
             //}
             
-           logger::Instance()->debug("Current " + std::to_string(g.id(*a_it)) + " " + std::to_string(guide_current) + " " + std::to_string(fac) + "\n");
+          // logger::Instance()->debug("Current " + std::to_string(g.id(*a_it)) + " " + std::to_string(guide_current) + " " + std::to_string(fac) + "\n");
             
             if (ai[*a_it].edge_type == edge_types::HELPER) {
                 guided_percentage[*a_it] = 1;
@@ -6687,7 +6687,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
                 kbpc[a].remove_id(wc.id(arc));
             }
             kpc[arc].clear();
-            erase_arc(wc, arc, fsc, input_ids, transcripts);
+            erase_arc(wc, arc, fsc, aic, input_ids, transcripts);
         }
     }
     for (ListDigraph::OutArcIt a(wc, node); a!=INVALID;) {
@@ -6699,7 +6699,7 @@ capacity_type base_manager::unravel_evidences_ILP(ListDigraph::Node node, int gu
                 kpc[a].remove_id(wc.id(arc));
             }  
             kbpc[arc].clear();
-            erase_arc(wc, arc, fsc, input_ids, transcripts);
+            erase_arc(wc, arc, fsc, aic, input_ids, transcripts);
         }
     }      
 
@@ -6879,7 +6879,7 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
                 know_back_paths[a].remove_id(wc.id(arc));
             }
             know_paths[arc].clear();
-            erase_arc(wc, arc, fsc, ip_ids, trans);
+            erase_arc(wc, arc, fsc, aic, ip_ids, trans);
         }
     }
     for (ListDigraph::OutArcIt a(wc, node); a!=INVALID;) {
@@ -6891,7 +6891,7 @@ bool base_manager::clean_barred_leftovers(ListDigraph::Node node,
                 know_paths[a].remove_id(wc.id(arc));
             }  
             know_back_paths[arc].clear();
-            erase_arc(wc, arc, fsc, ip_ids, trans);
+            erase_arc(wc, arc, fsc, aic, ip_ids, trans);
         }
     }
     
@@ -7528,7 +7528,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 
             }
             know_paths[arc].clear();
-            erase_arc(wc, arc, fsc, input_ids, transcripts);
+            erase_arc(wc, arc, fsc, aic, input_ids, transcripts);
         }
     }
     for (ListDigraph::OutArcIt a(wc, node); a!=INVALID;) {
@@ -7540,7 +7540,7 @@ void base_manager::unravel_evidences_groups(ListDigraph::Node node, int guiding_
                 know_paths[a].remove_id(wc.id(arc));
             }  
             know_back_paths[arc].clear();
-            erase_arc(wc, arc, fsc, input_ids, transcripts);
+            erase_arc(wc, arc, fsc, aic, input_ids, transcripts);
         }
     }
     
@@ -7652,14 +7652,14 @@ void base_manager::unravel_evidences(ListDigraph::Node node, int guiding,
         ListDigraph::Arc arc(a);
         ++a;
         if (fs[arc].get_flow(guiding) == 0) {
-            erase_arc(wc, arc, fs, ip_ids, trans);
+            erase_arc(wc, arc, fs, ai, ip_ids, trans);
         }
     }
     for (ListDigraph::OutArcIt a(wc, node); a!=INVALID;) {
         ListDigraph::Arc arc(a);
         ++a;
         if (fs[arc].get_flow(guiding) == 0) {
-            erase_arc(wc, arc, fs, ip_ids, trans);
+            erase_arc(wc, arc, fs, ai, ip_ids, trans);
         }
     }
     
@@ -8118,7 +8118,7 @@ void base_manager::unravel_unevidenced_leftovers(ListDigraph::Node &node, int gu
         
         know_paths[wc.arcFromId(*it)].clear();
         know_back_paths[wc.arcFromId(*it)].clear();
-        erase_arc(wc, wc.arcFromId(*it), fs, ip_ids, trans);
+        erase_arc(wc, wc.arcFromId(*it), fs, ai, ip_ids, trans);
     }
     for ( std::unordered_set<int>::iterator it = right.begin(); it!= right.end(); ++it) {
         
@@ -8128,16 +8128,46 @@ void base_manager::unravel_unevidenced_leftovers(ListDigraph::Node &node, int gu
         
         know_paths[wc.arcFromId(*it)].clear();
         know_back_paths[wc.arcFromId(*it)].clear();
-        erase_arc(wc, wc.arcFromId(*it), fs, ip_ids, trans);
+        erase_arc(wc, wc.arcFromId(*it), fs, ai, ip_ids, trans);
     }
     
 }
 
-void base_manager::erase_arc(ListDigraph &wc, ListDigraph::Arc arc, ListDigraph::ArcMap<flow_series>& fsc,  std::set<int>& ip_ids, ATC &transcripts) {
+void base_manager::erase_arc(ListDigraph &wc, ListDigraph::Arc arc, ListDigraph::ArcMap<flow_series>& fsc, ListDigraph::ArcMap<arc_identifier> &ai, std::set<int>& ip_ids, ATC &transcripts) {
     
     for (std::set<int>::iterator iii = ip_ids.begin(); iii != ip_ids.end(); ++iii) {
         int id = *iii;
         transcripts.total_flow_error[id] += fsc[arc].get_flow(id);
+        
+        if (fsc[arc].get_flow(id) == 0) {
+            continue;
+        }
+        
+        if (ai[arc].edge_type == edge_types::NODE) {
+
+            int ni = ai[arc].edge_specifier.node_index;
+            transcripts.exon_flow_error[ni][id] += fsc[arc].get_flow(id);
+        } else if (ai[arc].edge_type == edge_types::EXON) {
+
+            if (ai[arc].edge_specifier.id.count() >= 3) {
+                boost::dynamic_bitset<>::size_type index = ai[arc].edge_specifier.id.find_first();
+                boost::dynamic_bitset<>::size_type prev = index;
+                index = ai[arc].edge_specifier.id.find_next(index); 
+                transcripts.junction_flow_error[std::make_pair(prev, index)][id] += fsc[arc].get_flow(id);  
+
+                prev = index;
+                index = ai[arc].edge_specifier.id.find_next(index);
+
+                while(index != boost::dynamic_bitset<>::npos) {
+
+                    transcripts.junction_flow_error[std::make_pair(prev, index)][id] += fsc[arc].get_flow(id);
+                    transcripts.exon_flow_error[prev][id] += fsc[arc].get_flow(id);
+
+                    prev = index;
+                    index = ai[arc].edge_specifier.id.find_next(index);
+                }
+            }
+        } 
     }
     wc.erase(arc);
 }

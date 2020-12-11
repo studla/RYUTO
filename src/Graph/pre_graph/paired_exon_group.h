@@ -31,7 +31,7 @@ struct pointer_comp_paired_exon_group {
 };
 
 
-bool operator<(paired_exon_group& p1, paired_exon_group &p2);
+bool operator<(const paired_exon_group& p1, const paired_exon_group &p2);
 
 #endif	/* PAIRED_EXON_GROUP_H */
 
