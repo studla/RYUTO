@@ -165,24 +165,28 @@ void count_raw_edge::add_sub_counts_eg(exon_group* exons, int from, int to, gmap
         }
     }
     
-//    #ifdef ALLOW_DEBUG
-//    for (unsigned int i = 0; i < size; ++i) {
-//       
-//        logger::Instance()->debug("Split " + std::to_string(splits[i]) + "\n"); 
-//        
-//        rcount ss = 0;
-//        for (std::map< rpos,rcount >::iterator it = starts[i]->begin(); it != starts[i]->end(); ++it) {
-//            ss += it->second;
-//        }
-//        rcount ee = 0;
-//        for (std::map< rpos,rcount >::iterator it = ends[i]->begin(); it != ends[i]->end(); ++it) {
-//            ee += it->second;
-//        }
-//        
-//        logger::Instance()->debug("S " + std::to_string(ss) + " EE " + std::to_string(ee) + "\n"); 
-//    }
-//    logger::Instance()->debug("Split " + std::to_string(splits[size]) + "\n"); 
-//    #endif
+    #ifdef ALLOW_DEBUG
+    for(gmap<int, exon_group_count>::iterator ssi = exons->count_series.begin(); ssi != exons->count_series.end(); ++ssi) {
+        int id = ssi->first;
+        
+        for (unsigned int i = 0; i < size; ++i) {
+
+            logger::Instance()->debug("Split " + std::to_string(series[id].splits[i]) + "\n"); 
+
+            rcount ss = 0;
+            for (std::map< rpos,rcount >::iterator it = series[id].starts[i]->begin(); it != series[id].starts[i]->end(); ++it) {
+                ss += it->second;
+            }
+            rcount ee = 0;
+            for (std::map< rpos,rcount >::iterator it = series[id].ends[i]->begin(); it != series[id].ends[i]->end(); ++it) {
+                ee += it->second;
+            }
+
+            logger::Instance()->debug("S " + std::to_string(ss) + " EE " + std::to_string(ee) + "\n"); 
+        }
+        logger::Instance()->debug("Split " + std::to_string(series[id].splits[size]) + "\n"); 
+    }
+    #endif
     
 }
 
@@ -244,24 +248,28 @@ void count_raw_edge::add_sub_counts_start(exon_group* exons, int g, gmap<int, rc
             series[id].splits[g+1] -= ssi->second.total_rights;
         }
 
-//        #ifdef ALLOW_DEBUG
-//        for (unsigned int i = 0; i < size; ++i) {
-//
-//            logger::Instance()->debug("Split " + std::to_string(splits[i]) + "\n"); 
-//
-//            rcount ss = 0;
-//            for (std::map< rpos,rcount >::iterator it = starts[i]->begin(); it != starts[i]->end(); ++it) {
-//                ss += it->second;
-//            }
-//            rcount ee = 0;
-//            for (std::map< rpos,rcount >::iterator it = ends[i]->begin(); it != ends[i]->end(); ++it) {
-//                ee += it->second;
-//            }
-//
-//            logger::Instance()->debug("S " + std::to_string(ss) + " EE " + std::to_string(ee) + "\n"); 
-//        }
-//        logger::Instance()->debug("Split " + std::to_string(splits[size]) + "\n"); 
-//        #endif
+    #ifdef ALLOW_DEBUG
+    for(gmap<int, exon_group_count>::iterator ssi = exons->count_series.begin(); ssi != exons->count_series.end(); ++ssi) {
+        int id = ssi->first;
+        
+        for (unsigned int i = 0; i < size; ++i) {
+
+            logger::Instance()->debug("Split " + std::to_string(series[id].splits[i]) + "\n"); 
+
+            rcount ss = 0;
+            for (std::map< rpos,rcount >::iterator it = series[id].starts[i]->begin(); it != series[id].starts[i]->end(); ++it) {
+                ss += it->second;
+            }
+            rcount ee = 0;
+            for (std::map< rpos,rcount >::iterator it = series[id].ends[i]->begin(); it != series[id].ends[i]->end(); ++it) {
+                ee += it->second;
+            }
+
+            logger::Instance()->debug("S " + std::to_string(ss) + " EE " + std::to_string(ee) + "\n"); 
+        }
+        logger::Instance()->debug("Split " + std::to_string(series[id].splits[size]) + "\n"); 
+    }
+    #endif
         
         next_value[id] = ssi->second.total_lefts + ssi->second.hole_end_counts[0] - ssi->second.hole_start_counts[0];
         
@@ -315,24 +323,28 @@ void count_raw_edge::add_sub_counts_end(exon_group* exons, int g, gmap<int, rcou
     
         //splits[g] += exons->total_rights + exons->hole_start_counts[last_i] - exons->hole_end_counts[last_i]; by range!
 
-//        #ifdef ALLOW_DEBUG
-//        for (unsigned int i = 0; i < size; ++i) {
-//
-//           logger::Instance()->debug("Split " + std::to_string(splits[i]) + "\n"); 
-//
-//           rcount ss = 0;
-//           for (std::map< rpos,rcount >::iterator it = starts[i]->begin(); it != starts[i]->end(); ++it) {
-//               ss += it->second;
-//           }
-//           rcount ee = 0;
-//           for (std::map< rpos,rcount >::iterator it = ends[i]->begin(); it != ends[i]->end(); ++it) {
-//               ee += it->second;
-//           }
-//
-//           logger::Instance()->debug("S " + std::to_string(ss) + " EE " + std::to_string(ee) + "\n"); 
-//        }
-//        logger::Instance()->debug("Split " + std::to_string(splits[size]) + "\n"); 
-//        #endif
+    #ifdef ALLOW_DEBUG
+    for(gmap<int, exon_group_count>::iterator ssi = exons->count_series.begin(); ssi != exons->count_series.end(); ++ssi) {
+        int id = ssi->first;
+        
+        for (unsigned int i = 0; i < size; ++i) {
+
+            logger::Instance()->debug("Split " + std::to_string(series[id].splits[i]) + "\n"); 
+
+            rcount ss = 0;
+            for (std::map< rpos,rcount >::iterator it = series[id].starts[i]->begin(); it != series[id].starts[i]->end(); ++it) {
+                ss += it->second;
+            }
+            rcount ee = 0;
+            for (std::map< rpos,rcount >::iterator it = series[id].ends[i]->begin(); it != series[id].ends[i]->end(); ++it) {
+                ee += it->second;
+            }
+
+            logger::Instance()->debug("S " + std::to_string(ss) + " EE " + std::to_string(ee) + "\n"); 
+        }
+        logger::Instance()->debug("Split " + std::to_string(series[id].splits[size]) + "\n"); 
+    }
+    #endif
         
          next_value[id] = series[id].splits[g+1];
     }
