@@ -8,9 +8,10 @@ ryuto --help
 to see options.
 
 # Pre-Compiled
-Operation System | Version | Binary
- ---------------- | ------- | ------
-Generic Linux, dynamic linked    | -       | [binary](https://github.com/studla/RYUTO/releases/download/1.6/ryuto)
+Operation System |  Binary
+ ---------------- | ------
+Generic Linux, dynamic linked (recommended) | [binary](https://github.com/studla/RYUTO/releases/download/1.6/ryuto)
+Generic Linux, static libc | [binary](https://github.com/studla/RYUTO/releases/download/1.6-static/ryuto)
 
 All users have to install g++ in order for the pre-compiled binaries to work.
 e.g, for Fedora use:
@@ -19,7 +20,6 @@ sudo dnf install gcc-c++
 ```
 
  <!---The generic version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting C11.--->
-gcc version 9.3.1
 
 # Installation
 Download the newest source code from: https://github.com/studla/RYUTO
