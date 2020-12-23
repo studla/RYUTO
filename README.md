@@ -7,19 +7,27 @@ ryuto --help
 ```
 to see options.
 
+# Bio-Conda
+
+Ryuto is available via [bioconda](https://bioconda.github.io/)
+
+```
+conda install ryuto
+```
+
 # Pre-Compiled
 Operation System |  Binary
  ---------------- | ------
 Generic Linux, dynamic linked (recommended) | [binary](https://github.com/studla/RYUTO/releases/download/1.6/ryuto)
 Generic Linux, static libc | [binary](https://github.com/studla/RYUTO/releases/download/1.6-static/ryuto)
 
-All users have to install g++ in order for the pre-compiled binaries to work.
+All users have to install g++ in order for the pre-compiled dynamic binaries to work.
 e.g, for Fedora use:
 ```
 sudo dnf install gcc-c++
 ```
 
- <!---The generic version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting C11.--->
+The static version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting >= C11.
 
 # Installation
 Download the newest source code from: https://github.com/studla/RYUTO
