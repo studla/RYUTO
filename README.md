@@ -7,7 +7,7 @@ ryuto --help
 ```
 to see options.
 
-# Bio-Conda
+# Bioconda
 
 Ryuto is available via [bioconda](https://bioconda.github.io/)
 
