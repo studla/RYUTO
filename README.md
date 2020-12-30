@@ -1,11 +1,9 @@
 # Overview
 Ryuto is a tool for exact and fast transcript assembly and quantification, using network flows and a novel extension of splice-graphs.
 
-Run
-```
-ryuto --help
-```
-to see options.
+**Cite:**
+*Gatter, Thomas, and Peter F. Stadler. "Ryūtō: network-flow based transcriptome reconstruction." BMC bioinformatics 20.1 (2019): 190.*
+
 
 # Bioconda
 
@@ -28,6 +26,34 @@ sudo dnf install gcc-c++
 ```
 
 The static version provides libstdc++ and libgcc static linked for linux distributions that cannot provide libraries supporting >= C11.
+
+# Use
+
+In its basic usecase, Ryuto needs to be provided only an output directory and the library type used by RNA-Seq: You must provide at least one mapping file in sam or bam format.
+
+```
+ryuto -o [output dir] -l [fr-unstranded | fr-firststrand | fr-secondstrand]  <input1.bam> <input2.bam> ...
+```
+
+We recommnd to use multiple threads via option `-t [CPU COUNT]`.
+If an annotation is available for your organism, you may provide it via option `-g [GTF]`.
+
+See 
+```
+ryuto --help
+```
+for a full list of options.
+
+# Mapping
+
+For best results in combination with Ryuto, especially for multi-sample assembly, we recommend Mapping reads with [STAR](https://github.com/alexdobin/STAR).
+
+# Output
+
+3 files will be produced:
+- transcripts.gtf: The main result of the assembly. Transcripts are given in GTF format.
+- transcripts.count: Counting table produced for e.g. differential transcript expression analysis. Formatted as a table as follows: `Gene-Name, Transcript-Name,	Length of the Transcript,	Read Count Sample 1 [, Read Count Sample 2 [, Read Count Sample 3 ...]]`
+- transcripts.errcount: If multiple samples are assembled into a consensus, individual inputs may provide signals on how strongly they disagree with it. Higher numbers indicate a higher level of disagreement, e.g. because of undetected fold-changes. Formatted as a table as follows: `Chromosome, Strand, Start, End, Feature (Exon or Splice-Junction), Disagreement Sample 1 [, Disagreement Sample 2 [, Disagreement Sample 3 ...]]`
 
 # Installation
 Download the newest source code from: https://github.com/studla/RYUTO
