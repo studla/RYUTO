@@ -35,6 +35,8 @@ In its basic usecase, Ryuto needs to be provided only an output directory and th
 ryuto -o [output dir] -l [fr-unstranded | fr-firststrand | fr-secondstrand]  <input1.bam> <input2.bam> ...
 ```
 
+**Please always make sure that your bam files are sorted and index files are available.**
+
 We recommnd to use multiple threads via option `-t [CPU COUNT]`.
 If an annotation is available for your organism, you may provide it via option `-g [GTF]`.
 
