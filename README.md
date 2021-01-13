@@ -48,7 +48,7 @@ for a full list of options.
 
 # Mapping
 
-For best results in combination with Ryuto, especially for multi-sample assembly, we recommend Mapping reads with [STAR](https://github.com/alexdobin/STAR).
+For best results in combination with Ryuto, especially for multi-sample assembly, we strongly recommend mapping reads with [STAR](https://github.com/alexdobin/STAR) with option `--outSAMstrandField intronMotif`.
 
 # Output
 
