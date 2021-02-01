@@ -144,6 +144,9 @@ Clp and Lemon are automatically built and during the ./build_all.sh call. You ca
 Lemon needs to be linked to CLP if you want to provide those libraries yourself.
 If installed to a non-standard path, add with --with-clp=/path/to/your/clp --with-lemon=/path/to/your/lemon and build the project manually.
 
+# Additional Scripts
+
+You can find  our in-house scripts to create simulated samples and to use Ryuto counts for DESEQ2 in a seperate repository [here](https://github.com/TGatter/RyutoUsefulBits).
 
 # Testdata
 
