@@ -2205,7 +2205,7 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 r_it = overlap->ranges.next();
                 // so we take this a the current actual first range, same node applies though
                 
-                logger::Instance()->debug("Switch Arc " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
+//                logger::Instance()->debug("Switch Arc " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
                 
                 count_raw_edge* rec = &edge_counts[r_it->arc];
                 for (gmap<int, exon_group_count>::iterator egi = node_it->exons->count_series.begin(); egi != node_it->exons->count_series.end(); ++egi) {
@@ -2224,7 +2224,7 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 // the start hits in the middle of existing edge
                 // so we add in there
                 
-                logger::Instance()->debug("Mid Start " +  std::to_string(edge_counts[r_it->arc].size) + " " + std::to_string(c)  + " \n");
+//                logger::Instance()->debug("Mid Start " +  std::to_string(edge_counts[r_it->arc].size) + " " + std::to_string(c)  + " \n");
                 
                 unsigned int index = edge_counts[r_it->arc].size + 1 - c;
                 
@@ -2239,7 +2239,7 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
             if (j < r_it->end && i != j) {
                 
   
-                logger::Instance()->debug("Special CASE \n");
+//                logger::Instance()->debug("Special CASE \n");
                 
                 ++offset_new_exons;
                 
@@ -2263,7 +2263,7 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                     --c;
                 }
 
-                logger::Instance()->debug("Special CASE 2\n");
+//                logger::Instance()->debug("Special CASE 2\n");
                 
                 // we used up the first one
                 count_raw_edge* rec = &edge_counts[r_it->arc];
@@ -2292,15 +2292,15 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
     if (r_it->end < j) {
         r_it = overlap->ranges.next();
         
-         logger::Instance()->debug("Next Value c \n");
+//         logger::Instance()->debug("Next Value c " +  std::to_string(next_value) + " \n");
         
         for(; r_it!=NULL ; r_it = overlap->ranges.next() ) {
 
-            logger::Instance()->debug("Test Arc 2 " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
+//            logger::Instance()->debug("Test Arc 2 " +  std::to_string(r_it->start) + " " + std::to_string(r_it->end) + " \n");
 
             if (j > r_it->start && j < r_it->end) {
                 
-                logger::Instance()->debug("End condition  \n");
+//                logger::Instance()->debug("End condition  \n");
                 
                 unsigned int c = find_index_global_to_sub(j, &ai[r_it->arc].edge_specifier);
                 unsigned int l = edge_counts[r_it->arc].size + 1 - c;
@@ -2323,7 +2323,7 @@ void base_manager::add_unaltering_contained_counts( overlap_node* overlap,
                 break;
             } else {
                 
-                 logger::Instance()->debug("Fully covered  \n");
+//                 logger::Instance()->debug("Fully covered  \n");
                 
                 // so we have a full arc to add!
                 count_raw_edge* rec = &edge_counts[r_it->arc];

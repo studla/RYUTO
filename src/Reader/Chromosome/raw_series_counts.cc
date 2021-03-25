@@ -14,7 +14,7 @@
 #include "raw_series_counts.h"
 #include "../../Logger/logger.h"
 
-raw_series_counts::raw_series_counts() : total_lefts(0), total_rights(0), count(0), paired_count(0) {
+raw_series_counts::raw_series_counts() {
 }
 
 raw_series_counts::~raw_series_counts() {

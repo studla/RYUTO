@@ -18,9 +18,9 @@ public:
     
     struct series_struct {
         std::map< rpos,rcount > lefts;
-        rcount total_lefts = 0;
+        rcount total_lefts;
         std::map< rpos,rcount > rights;
-        rcount total_rights = 0;
+        rcount total_rights;
     };
     gmap<int, series_struct> series;
     
