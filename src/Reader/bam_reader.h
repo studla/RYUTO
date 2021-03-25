@@ -38,10 +38,6 @@ protected:
     
     void process_read( bam1_t *bread, rpos &left_border, rpos &right_border, chromosome* chrom, const std::string id_prefix,
         r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, int input_prefix, unsigned int total_inputs);
-        
-    void process_read( bam1_t *bread, rpos &left_border, rpos &right_border, bool &evidence, bool &discourage, chromosome* chrom, const std::string id_prefix,
-        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, int input_prefix, unsigned int total_inputs);        
-        
     rread* parse_read( bam1_t *bread,  chromosome* chrom, greader_list<interval> &junctions, greader_list<std::pair<rpos, rpos> > &splices,
         rpos &left, rpos &right, const std::string id_prefix, r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it,
         int index );

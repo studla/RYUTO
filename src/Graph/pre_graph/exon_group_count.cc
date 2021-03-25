@@ -13,7 +13,7 @@
 
 #include "exon_group_count.h"
 
-exon_group_count::exon_group_count() {
+exon_group_count::exon_group_count() : read_count(0), frag_count(0), total_lefts(0), total_rights(0) {
 }
 
 exon_group_count::~exon_group_count() {

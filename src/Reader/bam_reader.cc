@@ -556,13 +556,6 @@ void bam_reader::read_chromosome(std::vector<std::string> file_names, std::strin
     rpos left_border_rev = 0;
     rpos right_border_rev = 0;
     
-    bool evidence_plus = false;
-    bool evidence_minus = false;
-    bool discourage_plus = false;
-    bool discourage_minus = false;
-    
-    unsigned int total_count = (file_names.size() + options::Instance()->get_pooling() -1 ) / options::Instance()->get_pooling(); // division ceiling(size / pool)
-    
     // main loop of this, we always read ALL reads, but compacting is called multiple times
     std::vector<bam_file_>::iterator next = fileh.end();
     while ( true ) {
@@ -649,24 +642,7 @@ void bam_reader::read_chromosome(std::vector<std::string> file_names, std::strin
             
             if (options::Instance()->get_strand_type() == options::unknown ) {
                 
-                if (xs == '+') {  // we have a + junction, discourage -
-                    rpos left = read->core.pos + 1;
-                    if (left <= right_border_rev ) { //overlapping to -
-                        discourage_minus = true;
-                    }
-                    if (left <= right_border_fwd ) { //overlapping to +
-                        evidence_plus = true;
-                    }
-                } else if (xs == '-') { // we have a - junction, discourage +
-                    rpos left = read->core.pos + 1;
-                    if (left <= right_border_rev ) { //overlapping to -
-                        evidence_minus = true;
-                    }
-                    if (left <= right_border_fwd ) { //overlapping to +
-                        discourage_plus = true;
-                    }
-                
-                } else if ( xs == '.') {
+                if ( xs == '.') {
                     if (has_intron) {
                         logger::Instance()->warning("No strand information on spliced read ");
                         logger::Instance()->warning(bam_get_qname(read));
@@ -674,29 +650,22 @@ void bam_reader::read_chromosome(std::vector<std::string> file_names, std::strin
                         continue;
                     }
                     
-                    //logger::Instance()->debug("Border Check: + "+ std::to_string(right_border_fwd) + " - " + std::to_string(right_border_fwd) + "\n");
-                    
                     // try to resurrect it
                     rpos left = read->core.pos + 1;
-                    //logger::Instance()->debug("Read Left: + "+ std::to_string(left) + "\n");
-                    if ( left <= right_border_fwd && left > right_border_rev ) {
+                    if ( left <= right_border_fwd && left > left_border_rev ) {
                         xs = '+';
-                    } else if ( left > right_border_fwd && left <= right_border_rev ) {
+                    } else if ( left > right_border_fwd && left <= left_border_rev ) {
                         xs = '-';
                     }
                 }
                 
                 if (xs == '+') {
-                    logger::Instance()->debug("Add + " + std::to_string(evidence_plus) + " " + std::to_string(discourage_plus) + "\n");
-                    process_read(read, left_border_fwd, right_border_fwd, evidence_plus, discourage_plus, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], total_count);
+                    process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 } else if (xs == '-'){
-                    logger::Instance()->debug("Add - " + std::to_string(evidence_minus) + " " + std::to_string(discourage_minus) + "\n");
-                    process_read(read, left_border_rev, right_border_rev, evidence_minus, discourage_minus, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], total_count);
+                    process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 } else {
-                    logger::Instance()->debug("Add Both + "+ std::to_string(evidence_plus) + " " + std::to_string(discourage_plus) +"\n");
-                    process_read(read, left_border_fwd, right_border_fwd, evidence_plus, discourage_plus, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], total_count);
-                    logger::Instance()->debug("Add Both - " + std::to_string(evidence_minus) + " " + std::to_string(discourage_minus) + "\n");
-                    process_read(read, left_border_rev, right_border_rev, evidence_minus, discourage_minus, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], total_count);
+                    process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
+                    process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 }
                 
             } else { 
@@ -739,26 +708,24 @@ void bam_reader::read_chromosome(std::vector<std::string> file_names, std::strin
                 
                 if (strand == '+') {
                     if (xs != '-')
-                        process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], total_count);
+                        process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 } else if (strand == '-'){
                     if (xs != '+')
-                        process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], total_count);
+                        process_read(read, left_border_rev, right_border_rev, chrom_rev, id_prefix, ex_start_rev_it, ex_end_rev_it, options::Instance()->get_input_to_id()[index], file_names.size());
                 }
             }
             
         } else {
-                process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], total_count);
+                process_read(read, left_border_fwd, right_border_fwd, chrom_fwd, id_prefix, ex_start_fwd_it, ex_end_fwd_it, options::Instance()->get_input_to_id()[index], file_names.size());
         }
         
     }
     
     if (options::Instance()->is_stranded()) {
-        logger::Instance()->debug("Finish + " + std::to_string(evidence_plus) + " " + std::to_string(discourage_plus) + "\n");
-        logger::Instance()->debug("Finish - " + std::to_string(evidence_minus) + " " + std::to_string(discourage_minus) + "\n");
-        if (evidence_plus || !discourage_plus) finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, total_count);
-        if (evidence_minus || !discourage_minus) finish_block(chrom_rev, left_border_rev, right_border_rev, ex_start_rev_it, ex_end_rev_it, total_count);
+        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, file_names.size());
+        finish_block(chrom_rev, left_border_rev, right_border_rev, ex_start_rev_it, ex_end_rev_it, file_names.size());
     } else {
-        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, total_count);
+        finish_block(chrom_fwd, left_border_fwd, right_border_fwd, ex_start_fwd_it, ex_end_fwd_it, file_names.size());
     }
     
 
@@ -829,17 +796,7 @@ void bam_reader::read_chromosome(std::vector<std::string> file_names, std::strin
 //    logger::Instance()->error("tmps " + std::to_string(chrom_rev->read_queue.size()) +" "+ std::to_string(chrom_rev->interval_queue.size())+" "+ std::to_string(chrom_rev->splice_queue.size())+ "\n");
 }
 
-
 void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_border, chromosome* chrom, const std::string id_prefix,
-        r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, int index, unsigned int total_inputs) {
-    
-    bool evidence = true; bool discourage = false;
-    
-    process_read( bread, left_border, right_border, evidence, discourage, chrom, id_prefix, ex_start_it, ex_end_it, index, total_inputs);
-}
-
-
-void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_border, bool &evidence, bool &discourage, chromosome* chrom, const std::string id_prefix,
         r_border_set<rpos>::iterator &ex_start_it, r_border_set<rpos>::iterator &ex_end_it, int index, unsigned int total_inputs) {
     
 
@@ -910,18 +867,7 @@ void bam_reader::process_read( bam1_t *bread, rpos &left_border, rpos &right_bor
         // not overlapping on chromosome, so we need to finish up so far collected data
         rread last = *new_read;
         chrom->read_queue.pop_back();
-        
-        if (evidence || !discourage) { // we have evidence for this strand or it was at least not discouraged
-             finish_block(chrom, left_border, right_border, ex_start_it, ex_end_it, total_inputs);
-        } else {
-         
-             // just clean up and skip!
-             chrom->read_queue.clear();
-             chrom->interval_queue.clear();
-             chrom->splice_queue.clear();
-        }
-        evidence = false;
-        discourage = false;
+        finish_block(chrom, left_border, right_border, ex_start_it, ex_end_it, total_inputs);
         
         rread* re_add = chrom->addQueuedRead(last);
         for (greader_list<interval>::iterator it = junctions.begin(); it != junctions.end(); ++it) {
