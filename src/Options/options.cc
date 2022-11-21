@@ -138,7 +138,7 @@ void options::init(int argc, char **argv) {
         std::cout << graph_filter_o << std::endl;
         std::cout << filter_o << std::endl;
         std::cout << tech_o << std::endl;
-        std::cout << "(Version 1.6.2)" << std::endl;
+        std::cout << "(Version 1.6.3)" << std::endl;
         std::exit(0);
     }
     
