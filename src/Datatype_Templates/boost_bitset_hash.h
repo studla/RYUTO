@@ -11,6 +11,8 @@
 # define BOOST_DYNAMIC_BITSET_DONT_USE_FRIENDS
 #include <boost/dynamic_bitset.hpp>
 #include <boost/functional/hash.hpp>
+
+#if BOOST_VERSION < 107000 
 #include <functional>
 
 namespace std {
@@ -28,6 +30,8 @@ namespace boost {
         return boost::hash_value(bs.m_bits);
     }
 }
+
+#endif	
 
 #endif	/* BOOST_BITSET_HASH_H */
 
