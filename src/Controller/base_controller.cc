@@ -195,7 +195,9 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
             unsigned int index = meta->order_index;
             
             std::map<int, alternative_transcript_collection > group_transcripts;
-            
+ 
+            #pragma omp ordered 
+            {           
             for (greader_list<connected>::iterator ci = sub_connected.begin(); ci != sub_connected.end(); ++ci) {
                 pre_graph* graph = new pre_graph();
                 
@@ -210,15 +212,15 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
 
                 if (options::Instance()->is_secret_exon_counting()) {
                     has_graph = manager->build_basic_splitgraph();
-                    #pragma omp ordered 
-                    {
+                   // #pragma omp ordered 
+                   // {
                         if (has_graph) {
                             manager->print_exon_counts(exon_count);
                         }
                         if (manager->has_single_exons()) {
                             manager->single_counts(exon_count);
                         }
-                    }
+                   // }
                 } else {
 
                     if (graph->singled_bin_list.size() < 50000) { // less than 50k atoms
@@ -245,8 +247,6 @@ void base_controller::execute( reader_base& reader,  std::vector<std::string> &f
             
             delete meta;
             
-            #pragma omp ordered 
-            {
             std::string gene_id = std::to_string(c) + "_" + std::to_string(index);
             for (std::set<int>::iterator iid = ids.begin(); iid != ids.end(); ++iid) {
                 
